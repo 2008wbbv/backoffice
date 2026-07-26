@@ -1,0 +1,31 @@
+{{define "top"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>{{if .Title}}{{.Title}} · {{end}}{{.SiteName}}</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/">{{.SiteName}}</a>
+  {{if not .Bare}}
+  <nav>
+    <a href="/items/new" class="btn primary">+ Add item</a>
+    {{if .AuthOn}}<form method="post" action="/logout"><button class="btn ghost" type="submit">Sign out</button></form>{{end}}
+  </nav>
+  {{end}}
+</header>
+{{if .Flash}}<div class="toast ok">{{.Flash}}</div>{{end}}
+{{if .Error}}<div class="toast bad">{{.Error}}</div>{{end}}
+<main>
+{{end}}
+
+{{define "bottom"}}
+</main>
+<script src="/static/app.js" defer></script>
+</body>
+</html>
+{{end}}

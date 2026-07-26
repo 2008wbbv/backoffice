@@ -1,0 +1,10 @@
+# Runtime data: database, uploaded photos, session key
+/data/
+*.db
+*.db-wal
+*.db-shm
+
+# Build output
+/partsbin
+/dist/
+/backoffice

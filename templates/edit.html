@@ -1,0 +1,71 @@
+{{define "edit.html"}}
+{{template "top" .}}
+{{$d := .Data}}{{$it := $d.Item}}
+
+<p class="crumb"><a href="{{if $d.IsNew}}/{{else}}/items/{{$it.ID}}{{end}}">← Cancel</a></p>
+
+<form class="form" method="post" enctype="multipart/form-data"
+      action="{{if $d.IsNew}}/items{{else}}/items/{{$it.ID}}{{end}}">
+  <h1>{{if $d.IsNew}}Add item{{else}}Edit item{{end}}</h1>
+
+  <label class="field wide">
+    <span>Name</span>
+    <input name="name" value="{{$it.Name}}" required autofocus placeholder="ESP32-WROOM-32 devkit">
+  </label>
+
+  <div class="row">
+    <label class="field">
+      <span>Quantity</span>
+      <input name="quantity" type="number" min="0" step="1" value="{{$it.Quantity}}">
+    </label>
+    <label class="field">
+      <span>Location</span>
+      <input name="location" value="{{$it.Location}}" list="locations" placeholder="Shelf B / drawer 3" autocomplete="off">
+      <datalist id="locations">{{range $d.Locations}}<option value="{{.Value}}">{{end}}</datalist>
+    </label>
+    <label class="field">
+      <span>Type</span>
+      <input name="category" value="{{$it.Category}}" list="categories" placeholder="SBC, MCU, passive…" autocomplete="off">
+      <datalist id="categories">{{range $d.Categories}}<option value="{{.Value}}">{{end}}</datalist>
+    </label>
+  </div>
+
+  <div class="row">
+    <label class="field">
+      <span>Value / rating</span>
+      <input name="value" value="{{$it.Value}}" placeholder="10kΩ 1% 0805">
+    </label>
+    <label class="field">
+      <span>Part number</span>
+      <input name="part_number" value="{{$it.PartNumber}}" placeholder="ESP32-WROOM-32E">
+    </label>
+  </div>
+
+  <label class="field wide">
+    <span>Tags <em>comma separated</em></span>
+    <input name="tags" value="{{$it.Tags}}" placeholder="wifi, 3v3, smd">
+  </label>
+
+  <label class="field wide">
+    <span>Link <em>datasheet or product page</em></span>
+    <input name="link" type="url" value="{{$it.Link}}" placeholder="https://…">
+  </label>
+
+  <label class="field wide">
+    <span>Notes</span>
+    <textarea name="notes" rows="4" placeholder="Pinout quirks, which project it came from, anything you'll forget.">{{$it.Notes}}</textarea>
+  </label>
+
+  <label class="field wide">
+    <span>{{if $d.IsNew}}Photos{{else}}Add more photos{{end}}</span>
+    <input type="file" name="photos" accept="image/*" multiple capture="environment">
+  </label>
+
+  <div class="actions">
+    <button class="btn primary" type="submit">{{if $d.IsNew}}Add item{{else}}Save{{end}}</button>
+    <a class="btn ghost" href="{{if $d.IsNew}}/{{else}}/items/{{$it.ID}}{{end}}">Cancel</a>
+  </div>
+</form>
+
+{{template "bottom" .}}
+{{end}}
