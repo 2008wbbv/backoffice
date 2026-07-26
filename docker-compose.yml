@@ -1,0 +1,16 @@
+services:
+  partsbin:
+    build: .
+    container_name: partsbin
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      # Everything lives here: inventory.db, photos/, session.key.
+      # Back this one directory up and you have backed up the whole system.
+      - ./data:/data
+    environment:
+      # Set a password to require a login. Leave it out for an open LAN app.
+      # AUTH_PASSWORD: "change-me"
+      SITE_TITLE: "Parts Bin"
+      TZ: "UTC"

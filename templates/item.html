@@ -1,0 +1,89 @@
+{{define "item.html"}}
+{{template "top" .}}
+{{$it := .Data}}
+
+<p class="crumb"><a href="/">← All items</a></p>
+
+<article class="detail">
+  <div class="gallery">
+    {{if $it.Photos}}
+      <div class="hero-wrap">
+        <img id="hero" src="/media/{{(index $it.Photos 0).Filename}}" alt="{{$it.Name}}">
+      </div>
+      <div class="strip">
+        {{range $i, $p := $it.Photos}}
+        <div class="shot-wrap">
+          <button type="button" class="shot" data-full="/media/{{$p.Filename}}">
+            <img src="/media/thumb/{{$p.Filename}}" alt="Photo {{add $i 1}} of {{$it.Name}}" loading="lazy">
+          </button>
+          <div class="shot-tools">
+            {{if gt $i 0}}
+            <form method="post" action="/photos/{{$p.ID}}/cover">
+              <button type="submit" title="Use as cover" aria-label="Use photo {{add $i 1}} as cover">★</button>
+            </form>
+            {{end}}
+            <form method="post" action="/photos/{{$p.ID}}/delete" data-confirm="Delete this photo?">
+              <button type="submit" class="x" title="Delete photo" aria-label="Delete photo {{add $i 1}}">×</button>
+            </form>
+          </div>
+        </div>
+        {{end}}
+      </div>
+    {{else}}
+      <div class="noimg big">{{initials $it.Name}}</div>
+    {{end}}
+
+    <form class="dropzone" method="post" action="/items/{{$it.ID}}/photos" enctype="multipart/form-data">
+      <label class="drop-label">
+        <input type="file" name="photos" accept="image/*" multiple capture="environment" hidden>
+        <strong>Add photos</strong>
+        <span>drop them here, or click to pick / take one</span>
+      </label>
+      <button class="btn" type="submit">Upload</button>
+    </form>
+  </div>
+
+  <div class="info">
+    <h1>{{$it.Name}}</h1>
+
+    <div class="qtybox">
+      <form method="post" action="/items/{{$it.ID}}/quantity" class="step">
+        <input type="hidden" name="delta" value="-1">
+        <button class="btn" type="submit" aria-label="Remove one">−</button>
+      </form>
+      <span class="big-qty{{if eq $it.Quantity 0}} zero{{end}}">{{$it.Quantity}}</span>
+      <form method="post" action="/items/{{$it.ID}}/quantity" class="step">
+        <input type="hidden" name="delta" value="1">
+        <button class="btn" type="submit" aria-label="Add one">+</button>
+      </form>
+      <span class="muted">in stock</span>
+    </div>
+
+    <dl class="facts">
+      {{if $it.Location}}<dt>Location</dt><dd><a href="/?location={{$it.Location}}">{{$it.Location}}</a></dd>{{end}}
+      {{if $it.Category}}<dt>Type</dt><dd><a href="/?category={{$it.Category}}">{{$it.Category}}</a></dd>{{end}}
+      {{if $it.Value}}<dt>Value / rating</dt><dd>{{$it.Value}}</dd>{{end}}
+      {{if $it.PartNumber}}<dt>Part number</dt><dd><code>{{$it.PartNumber}}</code></dd>{{end}}
+      {{if $it.Link}}<dt>Link</dt><dd><a href="{{$it.Link}}" rel="noreferrer noopener" target="_blank">{{$it.Link}}</a></dd>{{end}}
+      <dt>Updated</dt><dd>{{since $it.UpdatedAt}}</dd>
+    </dl>
+
+    {{if $it.TagList}}
+    <div class="tags">
+      {{range $it.TagList}}<a class="chip sm" href="/?q={{.}}">{{.}}</a>{{end}}
+    </div>
+    {{end}}
+
+    {{if $it.Notes}}<div class="notes">{{$it.Notes}}</div>{{end}}
+
+    <div class="actions">
+      <a class="btn" href="/items/{{$it.ID}}/edit">Edit</a>
+      <form method="post" action="/items/{{$it.ID}}/delete" data-confirm="Delete “{{$it.Name}}” and its photos?">
+        <button class="btn danger" type="submit">Delete</button>
+      </form>
+    </div>
+  </div>
+</article>
+
+{{template "bottom" .}}
+{{end}}

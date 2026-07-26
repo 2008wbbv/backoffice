@@ -1,0 +1,97 @@
+{{define "index.html"}}
+{{template "top" .}}
+{{$d := .Data}}
+
+<form class="search" method="get" action="/">
+  <input type="search" name="q" value="{{$d.Query.Search}}" placeholder="Search name, part number, tags, notes…" autocomplete="off" autofocus>
+  {{if $d.Query.Category}}<input type="hidden" name="category" value="{{$d.Query.Category}}">{{end}}
+  {{if $d.Query.Location}}<input type="hidden" name="location" value="{{$d.Query.Location}}">{{end}}
+  {{if $d.Query.Sort}}<input type="hidden" name="sort" value="{{$d.Query.Sort}}">{{end}}
+  <button class="btn" type="submit">Search</button>
+</form>
+
+{{if or $d.Categories $d.Locations}}
+<div class="filters">
+  {{if $d.Categories}}
+  <div class="filter-row">
+    <span class="filter-label">Type</span>
+    {{range $d.Categories}}
+      <a class="chip{{if eq $.Data.Query.Category .Value}} on{{end}}"
+         href="{{if eq $.Data.Query.Category .Value}}{{query $.Data.Query "category" ""}}{{else}}{{query $.Data.Query "category" .Value}}{{end}}">{{.Value}} <span class="n">{{.Count}}</span></a>
+    {{end}}
+  </div>
+  {{end}}
+  {{if $d.Locations}}
+  <div class="filter-row">
+    <span class="filter-label">Where</span>
+    {{range $d.Locations}}
+      <a class="chip{{if eq $.Data.Query.Location .Value}} on{{end}}"
+         href="{{if eq $.Data.Query.Location .Value}}{{query $.Data.Query "location" ""}}{{else}}{{query $.Data.Query "location" .Value}}{{end}}">{{.Value}} <span class="n">{{.Count}}</span></a>
+    {{end}}
+  </div>
+  {{end}}
+</div>
+{{end}}
+
+<div class="bar">
+  <span class="muted">
+    {{len $d.Items}} shown{{if $d.Filtered}} of {{$d.Stats.Items}}{{end}} ·
+    {{$d.Stats.Pieces}} pieces total
+    {{if $d.Filtered}} · <a href="/">clear filters</a>{{end}}
+  </span>
+  <span class="sorts">
+    <a class="chip sm{{if or (eq $d.Query.Sort "") (eq $d.Query.Sort "recent")}} on{{end}}" href="{{query $d.Query "sort" "recent"}}">Recent</a>
+    <a class="chip sm{{if eq $d.Query.Sort "name"}} on{{end}}" href="{{query $d.Query "sort" "name"}}">A–Z</a>
+    <a class="chip sm{{if eq $d.Query.Sort "low"}} on{{end}}" href="{{query $d.Query "sort" "low"}}">Low stock</a>
+    <a class="chip sm" href="/export.csv">CSV</a>
+  </span>
+</div>
+
+{{if $d.Items}}
+<ul class="grid">
+  {{range $d.Items}}
+  <li class="card" data-id="{{.ID}}">
+    <a class="thumb" href="/items/{{.ID}}">
+      {{if .Thumb}}
+        <img src="/media/thumb/{{.Thumb}}" alt="{{.Name}}" loading="lazy" decoding="async">
+      {{else}}
+        <span class="noimg">{{initials .Name}}</span>
+      {{end}}
+      {{if gt (len .Photos) 1}}<span class="count">{{len .Photos}}</span>{{end}}
+    </a>
+    <div class="body">
+      <a class="name" href="/items/{{.ID}}">{{.Name}}</a>
+      {{if .Value}}<div class="val">{{.Value}}</div>{{end}}
+      {{if .Location}}<div class="loc">{{.Location}}</div>{{end}}
+      <div class="qty" data-qty-for="{{.ID}}">
+        <form method="post" action="/items/{{.ID}}/quantity" class="step">
+          <input type="hidden" name="delta" value="-1">
+          <input type="hidden" name="return" value="/">
+          <button class="btn tiny" type="submit" aria-label="Remove one">−</button>
+        </form>
+        <output class="n{{if eq .Quantity 0}} zero{{end}}">{{.Quantity}}</output>
+        <form method="post" action="/items/{{.ID}}/quantity" class="step">
+          <input type="hidden" name="delta" value="1">
+          <input type="hidden" name="return" value="/">
+          <button class="btn tiny" type="submit" aria-label="Add one">+</button>
+        </form>
+      </div>
+    </div>
+  </li>
+  {{end}}
+</ul>
+{{else}}
+<div class="empty">
+  {{if $d.Filtered}}
+    <p>Nothing matches that.</p>
+    <p><a class="btn" href="/">Clear filters</a></p>
+  {{else}}
+    <p><strong>Nothing in the bin yet.</strong></p>
+    <p class="muted">Add your first board, module or component — a photo, a count and where it lives is enough.</p>
+    <p><a class="btn primary" href="/items/new">+ Add item</a></p>
+  {{end}}
+</div>
+{{end}}
+
+{{template "bottom" .}}
+{{end}}
