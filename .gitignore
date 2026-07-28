@@ -5,6 +5,6 @@
 *.db-shm
 
 # Build output
-/partsbin
+/backoffice
 /dist/
 /backoffice

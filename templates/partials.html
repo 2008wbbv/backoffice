@@ -1,0 +1,88 @@
+{{/* itemCard is the grid tile, shared by the dashboard, the all-items grid and
+     each folder view so they cannot drift apart. */}}
+{{define "itemCard"}}
+<li class="card" data-id="{{.ID}}">
+  <a class="thumb" href="/items/{{.ID}}">
+    {{if .Thumb}}
+      <img src="/media/thumb/{{.Thumb}}" alt="{{.Name}}" loading="lazy" decoding="async">
+    {{else}}
+      <span class="noimg">{{initials .Name}}</span>
+    {{end}}
+    {{if gt (len .Photos) 1}}<span class="count">{{len .Photos}}</span>{{end}}
+  </a>
+  <div class="body">
+    <a class="name" href="/items/{{.ID}}">{{.Name}}</a>
+    {{if .Value}}<div class="val">{{.Value}}</div>{{end}}
+    {{if .Location}}<div class="loc">{{.Location}}</div>{{end}}
+    {{if .FolderName}}<div class="fold"><a href="/folders/{{.FolderRef}}">{{.FolderName}}</a></div>{{end}}
+    {{if .Tags}}
+    <div class="card-tags">
+      {{range .Tags}}<a class="chip xs" href="/items?tag={{.}}">{{.}}</a>{{end}}
+    </div>
+    {{end}}
+    <div class="qty" data-qty-for="{{.ID}}">
+      <form method="post" action="/items/{{.ID}}/quantity" class="step">
+        <input type="hidden" name="delta" value="-1">
+        <button class="btn tiny" type="submit" aria-label="Remove one {{.Name}}">−</button>
+      </form>
+      <output class="n{{if eq .Quantity 0}} zero{{end}}">{{.Quantity}}</output>
+      <form method="post" action="/items/{{.ID}}/quantity" class="step">
+        <input type="hidden" name="delta" value="1">
+        <button class="btn tiny" type="submit" aria-label="Add one {{.Name}}">+</button>
+      </form>
+    </div>
+  </div>
+</li>
+{{end}}
+
+{{/* filterChips renders the type / location / tag rows. Expects a dict of
+     "Query", "Categories", "Locations" and "Tags". */}}
+{{define "filterChips"}}
+{{$q := .Query}}
+{{if or .Categories (or .Locations .Tags)}}
+<div class="filters">
+  {{if .Categories}}
+  <div class="filter-row">
+    <span class="filter-label">Type</span>
+    {{range .Categories}}
+      <a class="chip{{if eq $q.Category .Value}} on{{end}}" href="{{query $q "category" .Value}}">{{.Value}} <span class="n">{{.Count}}</span></a>
+    {{end}}
+  </div>
+  {{end}}
+  {{if .Locations}}
+  <div class="filter-row">
+    <span class="filter-label">Where</span>
+    {{range .Locations}}
+      <a class="chip{{if eq $q.Location .Value}} on{{end}}" href="{{query $q "location" .Value}}">{{.Value}} <span class="n">{{.Count}}</span></a>
+    {{end}}
+  </div>
+  {{end}}
+  {{if .Tags}}
+  <div class="filter-row">
+    <span class="filter-label">Tags</span>
+    {{range .Tags}}
+      <a class="chip{{if hasTag $q .Value}} on{{end}}" href="{{toggleTag $q .Value}}">{{.Value}} <span class="n">{{.Count}}</span></a>
+    {{end}}
+  </div>
+  {{end}}
+</div>
+{{end}}
+{{end}}
+
+{{/* sortBar renders the count line plus the sort and export controls. Expects
+     "Query", "Shown", "Total" and "Filtered". */}}
+{{define "sortBar"}}
+{{$q := .Query}}
+<div class="bar">
+  <span class="muted">
+    {{.Shown}} shown{{if .Filtered}} of {{.Total}}{{end}}
+    {{if .Filtered}} · <a href="{{$q.Path}}">clear filters</a>{{end}}
+  </span>
+  <span class="sorts">
+    <a class="chip sm{{if or (eq $q.Sort "") (eq $q.Sort "recent")}} on{{end}}" href="{{query $q "sort" "recent"}}">Recent</a>
+    <a class="chip sm{{if eq $q.Sort "name"}} on{{end}}" href="{{query $q "sort" "name"}}">A–Z</a>
+    <a class="chip sm{{if eq $q.Sort "low"}} on{{end}}" href="{{query $q "sort" "low"}}">Low stock</a>
+    <a class="chip sm" href="/export.csv">CSV</a>
+  </span>
+</div>
+{{end}}

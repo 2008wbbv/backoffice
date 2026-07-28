@@ -7,7 +7,6 @@ import (
 	"html/template"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -24,10 +23,11 @@ var templateFS embed.FS
 var staticFS embed.FS
 
 type Config struct {
-	Addr     string
-	DataDir  string
-	Password string
-	Title    string
+	Addr         string
+	DataDir      string
+	Password     string
+	Title        string
+	AllowPrivate bool // let URL imports reach LAN addresses
 }
 
 func configFromEnv() Config {
@@ -35,7 +35,11 @@ func configFromEnv() Config {
 		Addr:     env("PORT", "8080"),
 		DataDir:  env("DATA_DIR", "./data"),
 		Password: os.Getenv("AUTH_PASSWORD"),
-		Title:    env("SITE_TITLE", "Parts Bin"),
+		Title:    env("SITE_TITLE", "Backoffice"),
+	}
+	switch strings.ToLower(os.Getenv("ALLOW_PRIVATE_FETCH")) {
+	case "1", "true", "yes":
+		c.AllowPrivate = true
 	}
 	if !strings.Contains(c.Addr, ":") {
 		c.Addr = ":" + c.Addr
@@ -51,11 +55,12 @@ func env(key, def string) string {
 }
 
 type App struct {
-	cfg    Config
-	store  *Store
-	photos *PhotoStore
-	tmpl   *template.Template
-	auth   *Auth
+	cfg     Config
+	store   *Store
+	photos  *PhotoStore
+	tmpl    *template.Template
+	auth    *Auth
+	fetcher *Fetcher
 }
 
 func main() {
@@ -81,11 +86,12 @@ func main() {
 	}
 
 	app := &App{
-		cfg:    cfg,
-		store:  &Store{db: db},
-		photos: photos,
-		tmpl:   mustTemplates(),
-		auth:   auth,
+		cfg:     cfg,
+		store:   &Store{db: db},
+		photos:  photos,
+		tmpl:    mustTemplates(),
+		auth:    auth,
+		fetcher: NewFetcher(cfg.AllowPrivate),
 	}
 
 	srv := &http.Server{
@@ -101,7 +107,12 @@ func main() {
 		if auth.Enabled() {
 			mode = "password protected"
 		}
-		log.Printf("%s listening on http://localhost%s  data=%s  auth=%s", cfg.Title, cfg.Addr, cfg.DataDir, mode)
+		fetch := "public hosts only"
+		if cfg.AllowPrivate {
+			fetch = "private addresses allowed"
+		}
+		log.Printf("%s listening on http://localhost%s  data=%s  auth=%s  url-import=%s",
+			cfg.Title, cfg.Addr, cfg.DataDir, mode, fetch)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("server: %v", err)
 		}
@@ -131,7 +142,8 @@ func (a *App) routes() http.Handler {
 
 	// Everything below requires a session when AUTH_PASSWORD is set.
 	protected := http.NewServeMux()
-	protected.HandleFunc("GET /{$}", a.handleIndex)
+	protected.HandleFunc("GET /{$}", a.handleDashboard)
+	protected.HandleFunc("GET /items", a.handleIndex)
 	protected.HandleFunc("GET /items/new", a.handleNewForm)
 	protected.HandleFunc("GET /items/{id}", a.handleItem)
 	protected.HandleFunc("GET /items/{id}/edit", a.handleEditForm)
@@ -144,7 +156,18 @@ func (a *App) routes() http.Handler {
 	protected.HandleFunc("POST /photos/{id}/cover", a.handleCoverPhoto)
 	protected.HandleFunc("GET /media/thumb/{name}", a.handleThumb)
 	protected.HandleFunc("GET /media/{name}", a.handleMedia)
+	protected.HandleFunc("POST /items/{id}/photos/url", a.handlePhotoFromURL)
+	protected.HandleFunc("POST /items/{id}/move", a.handleMoveItem)
 	protected.HandleFunc("GET /export.csv", a.handleExportCSV)
+
+	// Folders
+	protected.HandleFunc("GET /folders/{id}", a.handleFolder)
+	protected.HandleFunc("POST /folders", a.handleCreateFolder)
+	protected.HandleFunc("POST /folders/{id}", a.handleRenameFolder)
+	protected.HandleFunc("POST /folders/{id}/delete", a.handleDeleteFolder)
+
+	// Import from a URL, used by the add/edit form.
+	protected.HandleFunc("POST /import/preview", a.handleImportPreview)
 
 	mux.Handle("/", a.auth.Require(protected))
 	return logRequests(mux)
@@ -183,26 +206,35 @@ func templateFuncs() template.FuncMap {
 		},
 		"add": func(a, b int) int { return a + b },
 
+		// dict lets a page pass several named values into a shared partial.
+		"dict": func(pairs ...any) map[string]any {
+			m := map[string]any{}
+			for i := 0; i+1 < len(pairs); i += 2 {
+				if k, ok := pairs[i].(string); ok {
+					m[k] = pairs[i+1]
+				}
+			}
+			return m
+		},
+
 		// query rebuilds the grid URL with one filter changed and the rest
-		// preserved, so chips compose instead of resetting each other.
+		// preserved, so chips compose instead of resetting each other. Passing
+		// the value a filter already holds clears it, which makes every chip a
+		// toggle without needing a second helper.
 		"query": func(q Query, key, value string) template.URL {
-			vals := url.Values{}
-			set := func(k, v string) {
-				if k == key {
-					v = value
-				}
-				if v != "" && !(k == "sort" && v == "recent") {
-					vals.Set(k, v)
+			return template.URL(q.URL(key, value))
+		},
+		// toggleTag adds or removes one tag, leaving the other tags in place.
+		"toggleTag": func(q Query, tag string) template.URL {
+			return template.URL(q.WithTagToggled(tag))
+		},
+		"hasTag": func(q Query, tag string) bool {
+			for _, t := range q.Tags {
+				if strings.EqualFold(t, tag) {
+					return true
 				}
 			}
-			set("q", q.Search)
-			set("category", q.Category)
-			set("location", q.Location)
-			set("sort", q.Sort)
-			if len(vals) == 0 {
-				return "/"
-			}
-			return template.URL("/?" + vals.Encode())
+			return false
 		},
 
 		// initials is the placeholder shown for items with no photo yet.

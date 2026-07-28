@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/color"
 	"image/jpeg"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -36,11 +37,12 @@ func newTestApp(t *testing.T) *App {
 		t.Fatalf("NewAuth: %v", err)
 	}
 	return &App{
-		cfg:    Config{DataDir: dir, Title: "Test Bin"},
-		store:  &Store{db: db},
-		photos: photos,
-		tmpl:   mustTemplates(),
-		auth:   auth,
+		cfg:     Config{DataDir: dir, Title: "Backoffice"},
+		store:   &Store{db: db},
+		photos:  photos,
+		tmpl:    mustTemplates(),
+		auth:    auth,
+		fetcher: NewFetcher(true), // tests serve fixtures from loopback
 	}
 }
 
@@ -62,7 +64,7 @@ func TestSearchRequiresEveryWordToMatch(t *testing.T) {
 	seed(t, app.store,
 		Item{Name: "ESP32 devkit", Category: "MCU", Location: "Drawer 3", Quantity: 5},
 		Item{Name: "ESP32-CAM", Category: "MCU", Location: "Shelf B", Quantity: 2},
-		Item{Name: "Resistor 10k", Category: "Passive", Location: "Drawer 3", Quantity: 400, Tags: "smd, 0805"},
+		Item{Name: "Resistor 10k", Category: "Passive", Location: "Drawer 3", Quantity: 400, Tags: []string{"smd", "0805"}},
 	)
 
 	cases := []struct {
@@ -289,7 +291,7 @@ func TestApplyOrientationSwapsAxes(t *testing.T) {
 	}
 }
 
-func TestNormalizeTags(t *testing.T) {
+func TestSplitTags(t *testing.T) {
 	cases := map[string]string{
 		"wifi, 3v3 ,  , wifi": "wifi, 3v3",
 		"  SMD ,smd,Smd  ":    "SMD",
@@ -297,8 +299,8 @@ func TestNormalizeTags(t *testing.T) {
 		"a,b,c":               "a, b, c",
 	}
 	for in, want := range cases {
-		if got := normalizeTags(in); got != want {
-			t.Errorf("normalizeTags(%q) = %q, want %q", in, got, want)
+		if got := strings.Join(splitTags(in), ", "); got != want {
+			t.Errorf("splitTags(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
@@ -368,7 +370,7 @@ func TestCreateEditAndViewItemOverHTTP(t *testing.T) {
 	}
 
 	// The grid shows it, and the filter chips are populated from the item.
-	grid := getBody(t, client, srv.URL+"/")
+	grid := getBody(t, client, srv.URL+"/items")
 	if !strings.Contains(grid, "M5StickC Plus") || !strings.Contains(grid, "/media/thumb/") {
 		t.Error("grid is missing the new item or its thumbnail")
 	}
@@ -534,6 +536,15 @@ func multipartForm(t *testing.T, fields map[string]string, fileField, filename s
 	}
 	mw.Close()
 	return body, mw.FormDataContentType()
+}
+
+func readAll(t *testing.T, r io.Reader) string {
+	t.Helper()
+	buf := new(bytes.Buffer)
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	return buf.String()
 }
 
 func getBody(t *testing.T, c *http.Client, url string) string {

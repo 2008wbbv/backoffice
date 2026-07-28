@@ -1,0 +1,196 @@
+package main
+
+import (
+	"database/sql"
+	"fmt"
+	"strings"
+)
+
+// migration is one forward step. Most are plain SQL; a few need Go to reshape
+// existing rows. Steps run in order inside a transaction and the database's
+// user_version records how far it has got, so an old data directory upgrades
+// itself on the next start and there is still no migration command to run.
+type migration struct {
+	name string
+	sql  string
+	fn   func(*sql.Tx) error
+}
+
+var migrations = []migration{
+	{
+		name: "initial schema",
+		sql: `
+CREATE TABLE IF NOT EXISTS items (
+	id          INTEGER PRIMARY KEY AUTOINCREMENT,
+	name        TEXT    NOT NULL,
+	category    TEXT    NOT NULL DEFAULT '',
+	quantity    INTEGER NOT NULL DEFAULT 0,
+	location    TEXT    NOT NULL DEFAULT '',
+	part_number TEXT    NOT NULL DEFAULT '',
+	value       TEXT    NOT NULL DEFAULT '',
+	tags        TEXT    NOT NULL DEFAULT '',
+	link        TEXT    NOT NULL DEFAULT '',
+	notes       TEXT    NOT NULL DEFAULT '',
+	created_at  TEXT    NOT NULL,
+	updated_at  TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS photos (
+	id       INTEGER PRIMARY KEY AUTOINCREMENT,
+	item_id  INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+	filename TEXT    NOT NULL,
+	position INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_photos_item ON photos(item_id, position);
+CREATE INDEX IF NOT EXISTS idx_items_category ON items(category);
+CREATE INDEX IF NOT EXISTS idx_items_location ON items(location);
+`,
+	},
+	{
+		name: "folders",
+		sql: `
+CREATE TABLE folders (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	name       TEXT    NOT NULL,
+	parent_id  INTEGER REFERENCES folders(id) ON DELETE CASCADE,
+	created_at TEXT    NOT NULL
+);
+
+CREATE INDEX idx_folders_parent ON folders(parent_id);
+
+-- Deleting a folder leaves its items in place, just unfiled.
+ALTER TABLE items ADD COLUMN folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL;
+CREATE INDEX idx_items_folder ON items(folder_id);
+`,
+	},
+	{
+		name: "normalised tags",
+		sql: `
+CREATE TABLE tags (
+	id   INTEGER PRIMARY KEY AUTOINCREMENT,
+	name TEXT NOT NULL COLLATE NOCASE UNIQUE
+);
+
+CREATE TABLE item_tags (
+	item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+	tag_id  INTEGER NOT NULL REFERENCES tags(id)  ON DELETE CASCADE,
+	PRIMARY KEY (item_id, tag_id)
+);
+
+CREATE INDEX idx_item_tags_tag ON item_tags(tag_id);
+`,
+		// Split the old comma-separated items.tags column into the new tables so
+		// tags people already typed survive the upgrade.
+		fn: func(tx *sql.Tx) error {
+			rows, err := tx.Query(`SELECT id, tags FROM items WHERE tags <> ''`)
+			if err != nil {
+				return err
+			}
+			existing := map[int64]string{}
+			for rows.Next() {
+				var id int64
+				var tags string
+				if err := rows.Scan(&id, &tags); err != nil {
+					rows.Close()
+					return err
+				}
+				existing[id] = tags
+			}
+			rows.Close()
+			if err := rows.Err(); err != nil {
+				return err
+			}
+
+			for itemID, raw := range existing {
+				for _, name := range splitTags(raw) {
+					if err := attachTagTx(tx, itemID, name); err != nil {
+						return err
+					}
+				}
+			}
+			// The column is now a stale duplicate of item_tags.
+			_, err = tx.Exec(`ALTER TABLE items DROP COLUMN tags`)
+			return err
+		},
+	},
+}
+
+func migrate(db *sql.DB) error {
+	var version int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		return fmt.Errorf("read schema version: %w", err)
+	}
+	if version > len(migrations) {
+		return fmt.Errorf("database is at schema version %d but this build only knows %d; "+
+			"it was written by a newer version of the app", version, len(migrations))
+	}
+
+	for i := version; i < len(migrations); i++ {
+		m := migrations[i]
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(m.sql) != "" {
+			if _, err := tx.Exec(m.sql); err != nil {
+				tx.Rollback()
+				return fmt.Errorf("migration %d (%s): %w", i+1, m.name, err)
+			}
+		}
+		if m.fn != nil {
+			if err := m.fn(tx); err != nil {
+				tx.Rollback()
+				return fmt.Errorf("migration %d (%s): %w", i+1, m.name, err)
+			}
+		}
+		// PRAGMA user_version does not accept a bound parameter.
+		if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, i+1)); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("migration %d (%s): record version: %w", i+1, m.name, err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("migration %d (%s): commit: %w", i+1, m.name, err)
+		}
+	}
+	return nil
+}
+
+// splitTags cleans a comma-separated tag string into distinct, trimmed names.
+func splitTags(raw string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, t := range strings.Split(raw, ",") {
+		t = strings.TrimSpace(t)
+		if t == "" || len(t) > 40 {
+			continue
+		}
+		key := strings.ToLower(t)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, t)
+	}
+	return out
+}
+
+// attachTagTx links an item to a tag name, creating the tag if it is new.
+// Tag names are compared case-insensitively, so "SMD" and "smd" are one tag.
+func attachTagTx(tx *sql.Tx, itemID int64, name string) error {
+	var id int64
+	err := tx.QueryRow(`SELECT id FROM tags WHERE name = ?`, name).Scan(&id)
+	if err == sql.ErrNoRows {
+		res, err := tx.Exec(`INSERT INTO tags (name) VALUES (?)`, name)
+		if err != nil {
+			return err
+		}
+		if id, err = res.LastInsertId(); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+	_, err = tx.Exec(`INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)`, itemID, id)
+	return err
+}

@@ -1,8 +1,8 @@
-# Parts Bin
+# Backoffice
 
 A small self-hosted inventory for homelab parts — boards, SBCs, ESP32s, M5 sticks,
 modules, sensors, resistors, whatever is in the drawers. Photos, a count, and where
-it lives.
+it lives, organised into folders however you actually think about your stuff.
 
 One static binary, one SQLite file, one folder of photos. No database server, no
 Node build, no config file.
@@ -21,19 +21,22 @@ run and holds everything.
 **Straight binary**, if you'd rather not use Docker:
 
 ```sh
-go build -o partsbin .
-./partsbin                     # http://localhost:8080, data in ./data
+go build -o backoffice .
+./backoffice                   # http://localhost:8080, data in ./data
 ```
 
 Cross-compiling for a Pi or other ARM box, from any machine with Go:
 
 ```sh
-GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o partsbin .   # Pi 4/5, 64-bit
-GOOS=linux GOARCH=arm   GOARM=7 CGO_ENABLED=0 go build -o partsbin .   # Pi Zero 2 / 32-bit
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o backoffice .        # Pi 4/5, 64-bit
+GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build -o backoffice .  # Pi Zero 2 / 32-bit
 ```
 
 Copy the binary over and run it — it has no runtime dependencies at all, not even
 libc. Templates, CSS and JS are compiled into the executable.
+
+Upgrading is just replacing the binary. The database migrates itself on startup;
+there is no migration command to run and no downtime step.
 
 ## Configuration
 
@@ -41,33 +44,83 @@ Everything is optional. The defaults are the intended setup.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `PORT` | `8080` | Port to listen on. Accepts `8080` or `:8080` or `127.0.0.1:8080`. |
+| `PORT` | `8080` | Port to listen on. Accepts `8080`, `:8080` or `127.0.0.1:8080`. |
 | `DATA_DIR` | `./data` | Where the database and photos live. |
 | `AUTH_PASSWORD` | *(unset)* | If set, the whole app requires this password. If unset, no login at all. |
-| `SITE_TITLE` | `Parts Bin` | Name in the header and browser tab. |
+| `SITE_TITLE` | `Backoffice` | Name in the header and browser tab. |
+| `ALLOW_PRIVATE_FETCH` | *(unset)* | Let "import from a link" reach LAN addresses. See below. |
 | `TZ` | `UTC` | Affects the "updated 3 hours ago" timestamps. |
 
 ## Using it
 
-- **Add an item** — name is the only required field. Everything else (quantity,
-  location, type, value, part number, tags, link, notes, photos) is optional and
-  can be filled in later.
+### Folders
+
+The dashboard is organised into folders — "3D printer", "Bench drawers",
+"Sensors" — and they nest as deep as you like. A folder shows its own items, with
+a toggle to include everything in its subfolders, and each folder card counts its
+whole subtree.
+
+Folders are deliberately *not* the same thing as **location**. A location is where
+a part physically sits ("Shelf B / drawer 3"); a folder is how you think about it
+("the 3D printer pile"). Items can have both, either, or neither — anything with no
+folder shows up under **Unfiled**.
+
+Deleting a folder never deletes items. Its subfolders go with it, and everything
+inside becomes unfiled.
+
+### Tags
+
+Tags are first-class: type them comma-separated, or click any existing tag to
+attach it. They're matched case-insensitively, so `SMD` and `smd` are one tag.
+
+Clicking tags on the dashboard or in the filter row **stacks** them — picking
+`smd` and then `0805` shows only items carrying both. Tags that stop being used
+disappear from the list on their own.
+
+### Importing from the web
+
+Paste a product page, datasheet or wiki link into **Import from a link** on the
+add/edit form and press Fetch. The server reads the page's OpenGraph metadata and
+fills in the name, description, price, part number and a photo. Nothing is saved
+until you press Add/Save, and every field stays editable — it's a starting point,
+not an authority.
+
+You can also paste an image URL directly, on the form or on an existing item's
+page ("…or pull one from the web"). Give it a product page instead of an image and
+it will find that page's preview image.
+
+How well this works depends on the site: shops and wikis that emit OpenGraph tags
+fill in almost everything, while a bare PDF datasheet link gives you little. Sites
+that block non-browser traffic may refuse the request entirely.
+
+**A note on what this does:** it makes your server fetch a URL you paste. Because
+the server usually sits inside your home network, it could otherwise be used to
+reach things you didn't intend — a router admin page, a NAS, a cloud metadata
+endpoint. So private, loopback, link-local and carrier-NAT addresses are refused
+by default, on every redirect hop, checked against the address actually dialled
+rather than the hostname. If you want to import from something on your own network
+(a LAN wiki, a local parts server), set `ALLOW_PRIVATE_FETCH=1` — but only do that
+if you trust everyone who can reach the app.
+
+### Everything else
+
+- **Add an item** — name is the only required field.
 - **Locations and types configure themselves.** Type "Drawer 3" once and it becomes
-  a filter chip and an autocomplete suggestion. There is no separate screen for
-  setting up a location tree, because you don't need one.
-- **Counts** — the `−` / `+` buttons on the grid adjust stock without opening the
-  item. They never go below zero.
+  a filter chip and an autocomplete suggestion.
+- **Counts** — the `−` / `+` buttons adjust stock without opening the item. They
+  never go below zero.
 - **Search** matches every word against name, type, location, part number, value,
   tags and notes. `esp32 drawer` finds ESP32s stored in a drawer.
 - **Photos** — drop them on an item, or use the file picker, which opens the camera
-  on a phone. Thumbnails are generated automatically and rotated to match the photo's
-  EXIF orientation, so portrait phone shots aren't sideways. Click a thumbnail's ★ to
-  make it the cover, × to delete it.
+  on a phone. Thumbnails are generated automatically and rotated to match the
+  photo's EXIF orientation, so portrait phone shots aren't sideways. Hover a
+  thumbnail for ★ (make cover) and × (delete).
 - **Keyboard** — `/` focuses search, `n` opens the add form.
-- **CSV** — the `CSV` button exports the full inventory.
+- **CSV** — the `CSV` button exports the full inventory, folders and tags included.
 
-Everything works without JavaScript; JS only upgrades the count buttons to update
-in place, adds drag-and-drop and the lightbox.
+Everything works without JavaScript except the link import, which needs it. JS
+otherwise only upgrades the count buttons to update in place, and adds
+drag-and-drop, the tag picker and the lightbox.
 
 ## Access from outside the LAN
 
@@ -91,7 +144,7 @@ sqlite3 data/inventory.db ".backup 'backup.db'"
 ## Development
 
 ```sh
-go test ./...     # store, search, photo pipeline, EXIF, auth, HTTP round-trips
+go test ./...     # store, search, tags, folders, photos, EXIF, SSRF guards, HTTP
 go vet ./...
 ```
 
@@ -100,10 +153,16 @@ Layout:
 | File | Contents |
 | --- | --- |
 | `main.go` | Config, routes, template helpers |
-| `db.go` | Schema and every SQL query |
-| `handlers.go` | HTTP handlers |
+| `db.go` | Item/folder/tag queries and the filter model |
+| `migrate.go` | Schema migrations, applied on startup |
+| `handlers.go` | Item and grid handlers |
+| `handlers_folders.go` | Dashboard and folder handlers |
+| `handlers_import.go` | Import-from-URL endpoints |
+| `fetch.go` | Outbound fetching, SSRF guards, OpenGraph parsing |
 | `images.go` | Upload validation, thumbnails, EXIF orientation |
 | `auth.go` | Optional shared-password sessions |
 | `templates/`, `static/` | UI — embedded into the binary at build time |
 
-The schema is created on startup if missing, so there's no migration step to run.
+Schema changes go in `migrations` in `migrate.go` as a new entry; the database
+records how far it has got in `PRAGMA user_version` and applies whatever is
+missing on the next start.

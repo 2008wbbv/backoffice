@@ -1,0 +1,125 @@
+{{define "dashboard.html"}}
+{{template "top" .}}
+{{$d := .Data}}
+
+<form class="search" method="get" action="/items">
+  <input type="search" name="q" placeholder="Search everything — name, part number, tags, notes…" autocomplete="off">
+  <button class="btn" type="submit">Search</button>
+</form>
+
+<div class="tiles">
+  <a class="tile" href="/items"><b>{{$d.Stats.Items}}</b><span>items</span></a>
+  <div class="tile"><b>{{$d.Stats.Pieces}}</b><span>pieces</span></div>
+  <a class="tile" href="/items?sort=low"><b{{if $d.Stats.OutOf}} class="warn"{{end}}>{{$d.Stats.OutOf}}</b><span>out of stock</span></a>
+  <div class="tile"><b>{{$d.Stats.Folders}}</b><span>folders</span></div>
+  <div class="tile"><b>{{$d.Stats.Tags}}</b><span>tags</span></div>
+</div>
+
+<section class="panel-block">
+  <div class="section-head">
+    <h2>Folders</h2>
+    <details class="inline-form">
+      <summary class="btn">+ New folder</summary>
+      <form method="post" action="/folders">
+        <input type="hidden" name="return" value="/">
+        <input name="name" placeholder="Folder name" required>
+        <select name="parent_id">
+          <option value="">Top level</option>
+          {{range $d.Flat}}<option value="{{.ID}}">{{.Indent}}{{.Name}}</option>{{end}}
+        </select>
+        <button class="btn primary" type="submit">Create</button>
+      </form>
+    </details>
+  </div>
+
+  {{if $d.Folders}}
+  <ul class="folders">
+    {{range $d.Folders}}{{template "folderCard" .}}{{end}}
+    {{if $d.Unfiled}}
+    <li class="folder-card unfiled">
+      <a href="/items?unfiled=1">
+        <div class="folder-icon">⌂</div>
+        <div class="folder-body">
+          <b>Unfiled</b>
+          <span class="muted">{{$d.Unfiled}} item{{if ne $d.Unfiled 1}}s{{end}} in no folder</span>
+        </div>
+      </a>
+    </li>
+    {{end}}
+  </ul>
+  {{else}}
+  <div class="empty small">
+    <p><strong>No folders yet.</strong></p>
+    <p class="muted">Folders group things however you think about them — “3D printer”, “Bench drawers”,
+      “Sensors”. They're separate from where a part physically lives.</p>
+  </div>
+  {{end}}
+</section>
+
+{{if $d.Tags}}
+<section class="panel-block">
+  <div class="section-head"><h2>Tags</h2></div>
+  <div class="filter-row">
+    {{range $d.Tags}}<a class="chip" href="/items?tag={{.Value}}">{{.Value}} <span class="n">{{.Count}}</span></a>{{end}}
+  </div>
+</section>
+{{end}}
+
+{{if $d.LowStock}}
+<section class="panel-block">
+  <div class="section-head"><h2>Running low</h2><a class="chip sm" href="/items?sort=low">See all</a></div>
+  <ul class="rows">
+    {{range $d.LowStock}}
+    <li>
+      <a class="row-item" href="/items/{{.ID}}">
+        {{if .Thumb}}<img src="/media/thumb/{{.Thumb}}" alt="" loading="lazy">
+        {{else}}<span class="noimg tiny">{{initials .Name}}</span>{{end}}
+        <span class="row-name">{{.Name}}</span>
+        {{if .Location}}<span class="muted row-loc">{{.Location}}</span>{{end}}
+      </a>
+      <span class="row-qty{{if eq .Quantity 0}} zero{{end}}">{{.Quantity}}</span>
+    </li>
+    {{end}}
+  </ul>
+</section>
+{{end}}
+
+{{if $d.Recent}}
+<section class="panel-block">
+  <div class="section-head"><h2>Recently updated</h2><a class="chip sm" href="/items">All items</a></div>
+  <ul class="grid">
+    {{range $d.Recent}}{{template "itemCard" .}}{{end}}
+  </ul>
+</section>
+{{else}}
+<div class="empty">
+  <p><strong>Nothing in the inventory yet.</strong></p>
+  <p class="muted">Add your first board, module or component — a photo, a count and where it lives is enough.
+    You can also paste a product link and let it fill itself in.</p>
+  <p><a class="btn primary" href="/items/new">+ Add item</a></p>
+</div>
+{{end}}
+
+{{template "bottom" .}}
+{{end}}
+
+{{/* folderCard renders one folder and, indented beneath it, its subfolders. */}}
+{{define "folderCard"}}
+<li class="folder-card">
+  <a href="/folders/{{.ID}}">
+    {{if .Cover}}
+      <img class="folder-cover" src="/media/thumb/{{.Cover}}" alt="" loading="lazy">
+    {{else}}
+      <div class="folder-icon">🗀</div>
+    {{end}}
+    <div class="folder-body">
+      <b>{{.Name}}</b>
+      <span class="muted">
+        {{.TotalItems}} item{{if ne .TotalItems 1}}s{{end}}
+        {{if .TotalPieces}} · {{.TotalPieces}} pieces{{end}}
+      </span>
+      {{if .Children}}<span class="muted sub">{{len .Children}} subfolder{{if ne (len .Children) 1}}s{{end}}</span>{{end}}
+    </div>
+  </a>
+</li>
+{{end}}

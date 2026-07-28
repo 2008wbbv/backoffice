@@ -1,0 +1,91 @@
+{{define "folder.html"}}
+{{template "top" .}}
+{{$d := .Data}}{{$q := $d.Query}}{{$f := $d.Folder}}
+
+<nav class="crumb">
+  <a href="/">Dashboard</a>
+  {{range $d.Breadcrumb}}
+    <span class="sep">/</span>
+    {{if eq .ID $f.ID}}<span class="here">{{.Name}}</span>{{else}}<a href="/folders/{{.ID}}">{{.Name}}</a>{{end}}
+  {{end}}
+</nav>
+
+<div class="folder-head">
+  <h1>{{$f.Name}}</h1>
+  <div class="folder-actions">
+    <a class="btn primary" href="/items/new?folder={{$f.ID}}">+ Add item here</a>
+    <details class="inline-form">
+      <summary class="btn">Subfolder</summary>
+      <form method="post" action="/folders">
+        <input type="hidden" name="parent_id" value="{{$f.ID}}">
+        <input type="hidden" name="return" value="/folders/{{$f.ID}}">
+        <input name="name" placeholder="Subfolder name" required>
+        <button class="btn primary" type="submit">Create</button>
+      </form>
+    </details>
+    <details class="inline-form">
+      <summary class="btn">Settings</summary>
+      <form method="post" action="/folders/{{$f.ID}}">
+        <input name="name" value="{{$f.Name}}" required>
+        <select name="parent_id">
+          <option value="">Top level</option>
+          {{range $d.AllFolders}}
+            {{if ne .ID $f.ID}}
+            <option value="{{.ID}}"{{if $f.HasParent .ID}} selected{{end}}>{{.Indent}}{{.Name}}</option>
+            {{end}}
+          {{end}}
+        </select>
+        <button class="btn" type="submit">Save</button>
+      </form>
+      <form method="post" action="/folders/{{$f.ID}}/delete"
+            data-confirm="Delete the folder “{{$f.Name}}” and any subfolders? Items are kept — they just become unfiled.">
+        <button class="btn danger" type="submit">Delete folder</button>
+      </form>
+    </details>
+  </div>
+</div>
+
+{{if $d.Children}}
+<ul class="folders sub">
+  {{range $d.Children}}{{template "folderCard" .}}{{end}}
+</ul>
+{{end}}
+
+<form class="search" method="get" action="/folders/{{$f.ID}}">
+  <input type="search" name="q" value="{{$q.Search}}" placeholder="Search in {{$f.Name}}…" autocomplete="off">
+  {{if $d.Recursive}}<input type="hidden" name="all" value="1">{{end}}
+  <button class="btn" type="submit">Search</button>
+</form>
+
+<div class="bar">
+  <span class="muted">
+    {{len $d.Items}} shown
+    {{if $d.Children}}
+      · {{if $d.Recursive}}
+          including subfolders · <a href="/folders/{{$f.ID}}">this folder only</a>
+        {{else}}
+          this folder only · <a href="/folders/{{$f.ID}}?all=1">include subfolders ({{$d.TotalItems}})</a>
+        {{end}}
+    {{end}}
+  </span>
+  <span class="sorts">
+    <a class="chip sm{{if or (eq $q.Sort "") (eq $q.Sort "recent")}} on{{end}}" href="{{query $q "sort" "recent"}}">Recent</a>
+    <a class="chip sm{{if eq $q.Sort "name"}} on{{end}}" href="{{query $q "sort" "name"}}">A–Z</a>
+    <a class="chip sm{{if eq $q.Sort "low"}} on{{end}}" href="{{query $q "sort" "low"}}">Low stock</a>
+  </span>
+</div>
+
+{{if $d.Items}}
+<ul class="grid{{if not $d.Recursive}} in-folder{{end}}">
+  {{range $d.Items}}{{template "itemCard" .}}{{end}}
+</ul>
+{{else}}
+<div class="empty small">
+  <p><strong>This folder is empty.</strong></p>
+  <p><a class="btn primary" href="/items/new?folder={{$f.ID}}">+ Add an item here</a></p>
+  <p class="muted">Or open any item and move it into this folder.</p>
+</div>
+{{end}}
+
+{{template "bottom" .}}
+{{end}}

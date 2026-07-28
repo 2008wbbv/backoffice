@@ -92,3 +92,98 @@ document.addEventListener('keydown', (e) => {
     location.href = '/items/new';
   }
 });
+
+// --- import from a link -----------------------------------------------------
+// The server does the fetching and parsing; this only fills the form in and
+// leaves everything editable, so nothing is saved until Add/Save is pressed.
+const importGo = document.getElementById('import-go');
+if (importGo) {
+  const urlInput = document.getElementById('import-url');
+  const status = document.getElementById('import-status');
+  const preview = document.getElementById('import-preview');
+
+  const say = (msg, cls) => {
+    status.textContent = msg;
+    status.className = 'import-status' + (cls ? ' ' + cls : '');
+    status.hidden = !msg;
+  };
+
+  // Only fill a field the person hasn't already written in, so re-fetching
+  // never clobbers a correction.
+  const fill = (id, value, { force = false } = {}) => {
+    const el = document.getElementById(id);
+    if (!el || !value) return;
+    if (force || !el.value.trim()) el.value = value;
+  };
+
+  const run = async () => {
+    const url = urlInput.value.trim();
+    if (!url) { say('Paste a link first.', 'bad'); return; }
+
+    importGo.disabled = true;
+    say('Fetching…', 'busy');
+    preview.hidden = true;
+
+    try {
+      const res = await fetch('/import/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ url }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'could not read that page');
+
+      fill('f-name', data.name);
+      fill('f-notes', data.notes);
+      fill('f-value', data.value);
+      fill('f-part_number', data.part_number);
+      fill('f-link', data.link, { force: true });
+      fill('f-image_url', data.image_url, { force: true });
+
+      if (data.image_url) {
+        document.getElementById('import-thumb').src = data.image_url;
+      }
+      document.getElementById('import-title').textContent = data.name || '(no title found)';
+      document.getElementById('import-site').textContent = data.site || new URL(data.link || url).hostname;
+      preview.hidden = false;
+      say('Filled in what the page provided — edit anything before saving.', '');
+    } catch (err) {
+      say(err.message, 'bad');
+    } finally {
+      importGo.disabled = false;
+    }
+  };
+
+  importGo.addEventListener('click', run);
+  urlInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); run(); }
+  });
+}
+
+// --- tag picker -------------------------------------------------------------
+// Clicking an existing tag toggles it in the comma-separated field, which stays
+// the source of truth so typing a brand new tag still works.
+const tagSuggest = document.getElementById('tag-suggest');
+if (tagSuggest) {
+  const field = document.getElementById('f-tags');
+  const read = () => field.value.split(',').map((t) => t.trim()).filter(Boolean);
+  const sync = () => {
+    const active = read().map((t) => t.toLowerCase());
+    tagSuggest.querySelectorAll('[data-tag]').forEach((b) =>
+      b.classList.toggle('on', active.includes(b.dataset.tag.toLowerCase())));
+  };
+
+  tagSuggest.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-tag]');
+    if (!btn) return;
+    const tag = btn.dataset.tag;
+    const tags = read();
+    const at = tags.findIndex((t) => t.toLowerCase() === tag.toLowerCase());
+    if (at >= 0) tags.splice(at, 1); else tags.push(tag);
+    field.value = tags.join(', ');
+    sync();
+  });
+
+  field.addEventListener('input', sync);
+  sync();
+}

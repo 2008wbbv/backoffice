@@ -1,7 +1,7 @@
 .git
 .github
 data
-partsbin
+backoffice
 dist
 *.db
 *.db-wal

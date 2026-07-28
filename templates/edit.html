@@ -2,15 +2,35 @@
 {{template "top" .}}
 {{$d := .Data}}{{$it := $d.Item}}
 
-<p class="crumb"><a href="{{if $d.IsNew}}/{{else}}/items/{{$it.ID}}{{end}}">← Cancel</a></p>
+<p class="crumb"><a href="{{if $d.IsNew}}/items{{else}}/items/{{$it.ID}}{{end}}">← Cancel</a></p>
 
-<form class="form" method="post" enctype="multipart/form-data"
+<form class="form" method="post" enctype="multipart/form-data" id="item-form"
       action="{{if $d.IsNew}}/items{{else}}/items/{{$it.ID}}{{end}}">
   <h1>{{if $d.IsNew}}Add item{{else}}Edit item{{end}}</h1>
 
+  <!-- Paste a product page or datasheet link and let the server read its
+       metadata, rather than typing it all out. -->
+  <div class="import" id="import">
+    <label class="field wide">
+      <span>Import from a link <em>optional — fills the fields below</em></span>
+      <div class="import-row">
+        <input type="url" id="import-url" placeholder="https://shop.example.com/esp32-devkit" autocomplete="off">
+        <button class="btn" type="button" id="import-go">Fetch</button>
+      </div>
+    </label>
+    <p class="import-status" id="import-status" hidden></p>
+    <div class="import-preview" id="import-preview" hidden>
+      <img id="import-thumb" alt="">
+      <div>
+        <strong id="import-title"></strong>
+        <span class="muted" id="import-site"></span>
+      </div>
+    </div>
+  </div>
+
   <label class="field wide">
     <span>Name</span>
-    <input name="name" value="{{$it.Name}}" required autofocus placeholder="ESP32-WROOM-32 devkit">
+    <input name="name" id="f-name" value="{{$it.Name}}" required autofocus placeholder="ESP32-WROOM-32 devkit">
   </label>
 
   <div class="row">
@@ -19,7 +39,19 @@
       <input name="quantity" type="number" min="0" step="1" value="{{$it.Quantity}}">
     </label>
     <label class="field">
-      <span>Location</span>
+      <span>Folder</span>
+      <select name="folder_id">
+        <option value="">— none —</option>
+        {{range $d.Folders}}
+          <option value="{{.ID}}"{{if $it.InFolder .ID}} selected{{end}}>{{.Indent}}{{.Name}}</option>
+        {{end}}
+      </select>
+    </label>
+  </div>
+
+  <div class="row">
+    <label class="field">
+      <span>Location <em>physical spot</em></span>
       <input name="location" value="{{$it.Location}}" list="locations" placeholder="Shelf B / drawer 3" autocomplete="off">
       <datalist id="locations">{{range $d.Locations}}<option value="{{.Value}}">{{end}}</datalist>
     </label>
@@ -33,27 +65,32 @@
   <div class="row">
     <label class="field">
       <span>Value / rating</span>
-      <input name="value" value="{{$it.Value}}" placeholder="10kΩ 1% 0805">
+      <input name="value" id="f-value" value="{{$it.Value}}" placeholder="10kΩ 1% 0805">
     </label>
     <label class="field">
       <span>Part number</span>
-      <input name="part_number" value="{{$it.PartNumber}}" placeholder="ESP32-WROOM-32E">
+      <input name="part_number" id="f-part_number" value="{{$it.PartNumber}}" placeholder="ESP32-WROOM-32E">
     </label>
   </div>
 
-  <label class="field wide">
+  <div class="field wide">
     <span>Tags <em>comma separated</em></span>
-    <input name="tags" value="{{$it.Tags}}" placeholder="wifi, 3v3, smd">
-  </label>
+    <input name="tags" id="f-tags" value="{{$it.TagString}}" placeholder="wifi, 3v3, smd" autocomplete="off">
+    {{if $d.Tags}}
+    <div class="tag-suggest" id="tag-suggest">
+      {{range $d.Tags}}<button class="chip xs" type="button" data-tag="{{.Value}}">{{.Value}}</button>{{end}}
+    </div>
+    {{end}}
+  </div>
 
   <label class="field wide">
     <span>Link <em>datasheet or product page</em></span>
-    <input name="link" type="url" value="{{$it.Link}}" placeholder="https://…">
+    <input name="link" id="f-link" type="url" value="{{$it.Link}}" placeholder="https://…">
   </label>
 
   <label class="field wide">
     <span>Notes</span>
-    <textarea name="notes" rows="4" placeholder="Pinout quirks, which project it came from, anything you'll forget.">{{$it.Notes}}</textarea>
+    <textarea name="notes" id="f-notes" rows="4" placeholder="Pinout quirks, which project it came from, anything you'll forget.">{{$it.Notes}}</textarea>
   </label>
 
   <label class="field wide">
@@ -61,9 +98,14 @@
     <input type="file" name="photos" accept="image/*" multiple capture="environment">
   </label>
 
+  <label class="field wide">
+    <span>Photo from a URL <em>optional</em></span>
+    <input type="url" name="image_url" id="f-image_url" placeholder="https://…/board.jpg">
+  </label>
+
   <div class="actions">
     <button class="btn primary" type="submit">{{if $d.IsNew}}Add item{{else}}Save{{end}}</button>
-    <a class="btn ghost" href="{{if $d.IsNew}}/{{else}}/items/{{$it.ID}}{{end}}">Cancel</a>
+    <a class="btn ghost" href="{{if $d.IsNew}}/items{{else}}/items/{{$it.ID}}{{end}}">Cancel</a>
   </div>
 </form>
 

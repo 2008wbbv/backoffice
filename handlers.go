@@ -66,18 +66,34 @@ type indexData struct {
 	Items      []Item
 	Categories []Facet
 	Locations  []Facet
+	Tags       []Facet
+	Folders    []*Folder
 	Stats      Stats
 	Query      Query
 	Filtered   bool
 }
 
-func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
+// queryFromRequest reads the shared filter state used by the grid and by each
+// folder view.
+func (a *App) queryFromRequest(r *http.Request) Query {
+	v := r.URL.Query()
 	q := Query{
-		Search:   strings.TrimSpace(r.URL.Query().Get("q")),
-		Category: r.URL.Query().Get("category"),
-		Location: r.URL.Query().Get("location"),
-		Sort:     r.URL.Query().Get("sort"),
+		Search:   strings.TrimSpace(v.Get("q")),
+		Category: v.Get("category"),
+		Location: v.Get("location"),
+		Sort:     v.Get("sort"),
+		Unfiled:  v.Get("unfiled") == "1",
 	}
+	for _, t := range v["tag"] {
+		if t = strings.TrimSpace(t); t != "" {
+			q.Tags = append(q.Tags, t)
+		}
+	}
+	return q
+}
+
+func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
+	q := a.queryFromRequest(r)
 	items, err := a.store.ListItems(q)
 	if err != nil {
 		a.fail(w, err, http.StatusInternalServerError)
@@ -99,41 +115,97 @@ func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.render(w, r, "index.html", "", indexData{
+	tags, err := a.store.TagFacets()
+	if err != nil {
+		a.fail(w, err, http.StatusInternalServerError)
+		return
+	}
+	tree, err := a.store.FolderTree()
+	if err != nil {
+		a.fail(w, err, http.StatusInternalServerError)
+		return
+	}
+
+	a.render(w, r, "index.html", "All items", indexData{
 		Items:      items,
 		Categories: cats,
 		Locations:  locs,
+		Tags:       tags,
+		Folders:    FlattenFolders(tree),
 		Stats:      stats,
 		Query:      q,
-		Filtered:   q.Search != "" || q.Category != "" || q.Location != "",
+		Filtered:   q.Any(),
 	})
 }
 
 // --- single item ------------------------------------------------------------
+
+type itemData struct {
+	Item
+	Folders []*Folder
+}
 
 func (a *App) handleItem(w http.ResponseWriter, r *http.Request) {
 	it, ok := a.lookup(w, r)
 	if !ok {
 		return
 	}
-	a.render(w, r, "item.html", it.Name, it)
+	a.render(w, r, "item.html", it.Name, itemData{Item: it, Folders: a.folderListOrNil()})
 }
 
 func (a *App) handleNewForm(w http.ResponseWriter, r *http.Request) {
-	cats, _ := a.store.Facets("category")
-	locs, _ := a.store.Facets("location")
+	// Prefill from the view the person came from, so adding an item while
+	// looking at a folder files it there by default.
+	item := Item{
+		Quantity: 1,
+		Location: r.URL.Query().Get("location"),
+		Category: r.URL.Query().Get("category"),
+		FolderID: optionalID(r.URL.Query().Get("folder")),
+	}
+	if tag := strings.TrimSpace(r.URL.Query().Get("tag")); tag != "" {
+		item.Tags = []string{tag}
+	}
 	a.render(w, r, "edit.html", "New item", editData{
-		Item:       Item{Quantity: 1, Location: r.URL.Query().Get("location"), Category: r.URL.Query().Get("category")},
-		Categories: cats,
-		Locations:  locs,
+		Item:       item,
+		Categories: a.facetsOrNil("category"),
+		Locations:  a.facetsOrNil("location"),
+		Tags:       a.tagFacetsOrNil(),
+		Folders:    a.folderListOrNil(),
 		IsNew:      true,
 	})
+}
+
+func (a *App) facetsOrNil(column string) []Facet {
+	f, err := a.store.Facets(column)
+	if err != nil {
+		log.Printf("facets %s: %v", column, err)
+	}
+	return f
+}
+
+func (a *App) tagFacetsOrNil() []Facet {
+	f, err := a.store.TagFacets()
+	if err != nil {
+		log.Printf("tag facets: %v", err)
+	}
+	return f
+}
+
+func (a *App) folderListOrNil() []*Folder {
+	tree, err := a.store.FolderTree()
+	if err != nil {
+		log.Printf("folder tree: %v", err)
+		return nil
+	}
+	return FlattenFolders(tree)
 }
 
 type editData struct {
 	Item       Item
 	Categories []Facet
 	Locations  []Facet
+	Tags       []Facet
+	Folders    []*Folder
 	IsNew      bool
 }
 
@@ -142,9 +214,13 @@ func (a *App) handleEditForm(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	cats, _ := a.store.Facets("category")
-	locs, _ := a.store.Facets("location")
-	a.render(w, r, "edit.html", "Edit "+it.Name, editData{Item: it, Categories: cats, Locations: locs})
+	a.render(w, r, "edit.html", "Edit "+it.Name, editData{
+		Item:       it,
+		Categories: a.facetsOrNil("category"),
+		Locations:  a.facetsOrNil("location"),
+		Tags:       a.tagFacetsOrNil(),
+		Folders:    a.folderListOrNil(),
+	})
 }
 
 // itemFromForm reads the shared add/edit form. Quantity falls back to 0 rather
@@ -158,6 +234,10 @@ func itemFromForm(r *http.Request) (Item, error) {
 	if qty < 0 {
 		qty = 0
 	}
+	// The tag field is a comma-separated text input; the checkbox list of
+	// existing tags posts additional values under the same name.
+	tags := splitTags(strings.Join(append(r.Form["tags"], r.Form["tag"]...), ","))
+
 	return Item{
 		Name:       name,
 		Category:   strings.TrimSpace(r.FormValue("category")),
@@ -165,24 +245,11 @@ func itemFromForm(r *http.Request) (Item, error) {
 		Location:   strings.TrimSpace(r.FormValue("location")),
 		PartNumber: strings.TrimSpace(r.FormValue("part_number")),
 		Value:      strings.TrimSpace(r.FormValue("value")),
-		Tags:       normalizeTags(r.FormValue("tags")),
+		Tags:       tags,
 		Link:       strings.TrimSpace(r.FormValue("link")),
 		Notes:      strings.TrimSpace(r.FormValue("notes")),
+		FolderID:   optionalID(r.FormValue("folder_id")),
 	}, nil
-}
-
-func normalizeTags(raw string) string {
-	var out []string
-	seen := map[string]bool{}
-	for _, t := range strings.Split(raw, ",") {
-		t = strings.TrimSpace(t)
-		if t == "" || seen[strings.ToLower(t)] {
-			continue
-		}
-		seen[strings.ToLower(t)] = true
-		out = append(out, t)
-	}
-	return strings.Join(out, ", ")
 }
 
 func (a *App) handleCreate(w http.ResponseWriter, r *http.Request) {
@@ -201,6 +268,9 @@ func (a *App) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	msg := a.savePhotos(r, id)
+	if urlMsg := a.savePhotoFromURL(r, id, r.FormValue("image_url")); urlMsg != "" {
+		msg = strings.TrimPrefix(msg+"; "+urlMsg, "; ")
+	}
 	redirect(w, r, fmt.Sprintf("/items/%d", id), "Added "+it.Name, msg)
 }
 
@@ -224,6 +294,9 @@ func (a *App) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	msg := a.savePhotos(r, id)
+	if urlMsg := a.savePhotoFromURL(r, id, r.FormValue("image_url")); urlMsg != "" {
+		msg = strings.TrimPrefix(msg+"; "+urlMsg, "; ")
+	}
 	redirect(w, r, fmt.Sprintf("/items/%d", id), "Saved", msg)
 }
 
@@ -381,11 +454,13 @@ func (a *App) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 
 	cw := csv.NewWriter(w)
 	defer cw.Flush()
-	cw.Write([]string{"id", "name", "category", "quantity", "location", "part_number", "value", "tags", "link", "notes", "photos", "updated_at"})
+	cw.Write([]string{"id", "name", "category", "quantity", "location", "part_number",
+		"value", "tags", "link", "notes", "folder", "photos", "updated_at"})
 	for _, it := range items {
 		cw.Write([]string{
 			strconv.FormatInt(it.ID, 10), it.Name, it.Category, strconv.Itoa(it.Quantity),
-			it.Location, it.PartNumber, it.Value, it.Tags, it.Link, it.Notes,
+			it.Location, it.PartNumber, it.Value, it.TagString(), it.Link, it.Notes,
+			it.FolderName,
 			strconv.Itoa(len(it.Photos)), it.UpdatedAt.Format("2006-01-02 15:04"),
 		})
 	}

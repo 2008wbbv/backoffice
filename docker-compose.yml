@@ -1,7 +1,7 @@
 services:
-  partsbin:
+  backoffice:
     build: .
-    container_name: partsbin
+    container_name: backoffice
     restart: unless-stopped
     ports:
       - "8080:8080"
@@ -12,5 +12,10 @@ services:
     environment:
       # Set a password to require a login. Leave it out for an open LAN app.
       # AUTH_PASSWORD: "change-me"
-      SITE_TITLE: "Parts Bin"
+      SITE_TITLE: "Backoffice"
       TZ: "UTC"
+      # Importing from a link fetches the page server-side. Private/LAN
+      # addresses are refused by default so a pasted URL cannot be used to
+      # reach your router or NAS. Set this to 1 only if you want to import
+      # from something on your own network.
+      # ALLOW_PRIVATE_FETCH: "1"
