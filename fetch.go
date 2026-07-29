@@ -359,6 +359,11 @@ func firstOf(meta map[string]string, keys ...string) string {
 
 // tidy collapses whitespace and trims to a length that fits the form fields.
 func tidy(s string, max int) string {
+	// Real shops often double-encode their OpenGraph text, so the parser hands
+	// back a literal "&#39;" where an apostrophe belongs. Unescaping again
+	// fixes those; text that was only encoded once is already plain and passes
+	// through untouched.
+	s = html.UnescapeString(s)
 	s = strings.TrimSpace(strings.Join(strings.Fields(s), " "))
 	if len(s) > max {
 		// Cut on a rune boundary, and prefer the last word break.

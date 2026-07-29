@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -438,7 +439,15 @@ func (a *App) handleThumb(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
-	http.ServeFile(w, r, a.photos.ThumbPath(name))
+
+	// Some valid images cannot be decoded by the standard library, so no
+	// thumbnail exists for them. Serving the original keeps the grid intact --
+	// browsers decode what Go could not.
+	path := a.photos.ThumbPath(name)
+	if _, err := os.Stat(path); err != nil {
+		path = a.photos.Path(name)
+	}
+	http.ServeFile(w, r, path)
 }
 
 // --- export -----------------------------------------------------------------

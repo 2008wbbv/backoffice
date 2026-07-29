@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -599,5 +601,68 @@ func TestQueryURLTogglesAndPreservesFilters(t *testing.T) {
 	scoped := Query{FolderID: &id, Sort: "name"}
 	if got := scoped.URL("sort", "low"); !strings.HasPrefix(got, "/folders/7?") {
 		t.Errorf("URL = %q, want it to stay under /folders/7", got)
+	}
+}
+
+func TestImportDecodesDoubleEncodedEntities(t *testing.T) {
+	// Real shops (Adafruit among them) emit OpenGraph text whose entities are
+	// encoded twice, so the parser yields a literal "&#39;" in the description.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `<html><head>
+			<meta property="og:title" content="Adafruit HUZZAH32 &amp;#8211; ESP32 Feather">
+			<meta property="og:description" content="Aww yeah, it&amp;#39;s the Feather you&amp;#39;ve waited for.">
+			</head></html>`)
+	}))
+	defer srv.Close()
+
+	meta, err := NewFetcher(true).FetchPage(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatalf("FetchPage: %v", err)
+	}
+	if strings.Contains(meta.Title, "&#") || strings.Contains(meta.Description, "&#") {
+		t.Errorf("entities survived into the form:\n title = %q\n notes = %q", meta.Title, meta.Description)
+	}
+	if meta.Description != "Aww yeah, it's the Feather you've waited for." {
+		t.Errorf("description = %q", meta.Description)
+	}
+	if meta.Title != "Adafruit HUZZAH32 – ESP32 Feather" {
+		t.Errorf("title = %q", meta.Title)
+	}
+}
+
+func TestUndecodableButValidImageIsKept(t *testing.T) {
+	// Go's image/jpeg rejects some perfectly valid JPEGs ("unsupported JPEG
+	// feature: luma/chroma subsampling ratio"), which real product photos and
+	// camera output do hit. Losing the photo over that is worse than having no
+	// thumbnail, so the original is stored and served in the thumbnail's place.
+	app := newTestApp(t)
+
+	valid := testJPEG(t, 40, 30, 0)
+	undecodable := append([]byte(nil), valid[:6]...) // keep the JPEG magic
+	undecodable = append(undecodable, []byte("garbage that no decoder accepts")...)
+
+	name, err := app.photos.Save(bytes.NewReader(undecodable), "weird.jpg")
+	if err != nil {
+		t.Fatalf("a JPEG the decoder cannot read was rejected outright: %v", err)
+	}
+	if _, err := os.Stat(app.photos.Path(name)); err != nil {
+		t.Fatalf("original was not stored: %v", err)
+	}
+
+	// Serving its thumbnail must fall back to the original rather than 404.
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	res, err := http.Get(srv.URL + "/media/thumb/" + name)
+	if err != nil {
+		t.Fatalf("GET thumb: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("thumbnail request = %d, want 200 by falling back to the original", res.StatusCode)
+	}
+
+	// Genuinely non-image uploads are still refused.
+	if _, err := app.photos.Save(strings.NewReader("<html>not an image</html>"), "page.html"); err == nil {
+		t.Error("a non-image was accepted")
 	}
 }

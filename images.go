@@ -58,18 +58,22 @@ func (p *PhotoStore) Save(r io.Reader, origName string) (string, error) {
 		return "", fmt.Errorf("empty upload")
 	}
 
-	cfg, format, err := image.DecodeConfig(bytes.NewReader(raw))
-	if err != nil {
+	// The container is identified from its magic bytes rather than from
+	// whether Go can decode the pixels. Plenty of real camera and shop images
+	// are valid JPEGs that image/jpeg rejects -- "unsupported JPEG feature:
+	// luma/chroma subsampling ratio" is the common one -- and every browser
+	// renders them fine. Refusing those would lose the photo for no reason.
+	ext := sniffFormat(raw)
+	if ext == "" {
 		return "", fmt.Errorf("%s is not a supported image (jpeg, png, gif or webp)", origName)
 	}
-	if cfg.Width*cfg.Height > maxPixels {
-		return "", fmt.Errorf("%s is too large to process (%dx%d)", origName, cfg.Width, cfg.Height)
+	// The pixel guard only applies when the dimensions are actually readable.
+	if cfg, _, err := image.DecodeConfig(bytes.NewReader(raw)); err == nil {
+		if cfg.Width*cfg.Height > maxPixels {
+			return "", fmt.Errorf("%s is too large to process (%dx%d)", origName, cfg.Width, cfg.Height)
+		}
 	}
 
-	ext := format
-	if ext == "jpeg" {
-		ext = "jpg"
-	}
 	name, err := randomName(ext)
 	if err != nil {
 		return "", err
@@ -123,6 +127,22 @@ func (p *PhotoStore) Remove(name string) {
 	}
 	os.Remove(p.Path(name))
 	os.Remove(p.ThumbPath(name))
+}
+
+// sniffFormat identifies the image container from its leading bytes, returning
+// the file extension to store it under, or "" if it is not an image we serve.
+func sniffFormat(raw []byte) string {
+	switch {
+	case len(raw) >= 3 && bytes.HasPrefix(raw, []byte{0xFF, 0xD8, 0xFF}):
+		return "jpg"
+	case bytes.HasPrefix(raw, []byte("\x89PNG\r\n\x1a\n")):
+		return "png"
+	case bytes.HasPrefix(raw, []byte("GIF87a")), bytes.HasPrefix(raw, []byte("GIF89a")):
+		return "gif"
+	case len(raw) >= 12 && bytes.HasPrefix(raw, []byte("RIFF")) && bytes.Equal(raw[8:12], []byte("WEBP")):
+		return "webp"
+	}
+	return ""
 }
 
 func randomName(ext string) (string, error) {
