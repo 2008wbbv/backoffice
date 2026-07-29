@@ -81,9 +81,45 @@
 
     {{if $it.Tags}}
     <div class="tags">
-      {{range $it.Tags}}<a class="chip sm" href="/items?tag={{.}}">{{.}}</a>{{end}}
+      {{range $it.Tags}}<a class="chip sm" href="/items?tag={{.Name}}">{{if .Icon}}<span class="ti">{{.Icon}}</span>{{end}}{{.Name}}</a>{{end}}
     </div>
     {{end}}
+
+    <section class="prices">
+      <h2>Prices</h2>
+      {{if $it.Prices}}
+      <ul>
+        {{range $it.Prices}}
+        <li>
+          <span class="src">{{.Source}}</span>
+          <span class="amt">{{.Display}}</span>
+          {{if .URL}}<a class="muted" href="{{.URL}}" target="_blank" rel="noreferrer noopener">link</a>{{end}}
+          <span class="muted when">{{since .UpdatedAt}}</span>
+          <form method="post" action="/items/{{$it.ID}}/price/delete">
+            <input type="hidden" name="source" value="{{.Source}}">
+            <button class="btn tiny danger" type="submit" aria-label="Remove {{.Source}} price">×</button>
+          </form>
+        </li>
+        {{end}}
+      </ul>
+      {{if gt $it.Quantity 0}}
+      <p class="muted line-value">{{$it.Quantity}} in stock · {{money $it.LineValue}} at the cheapest price</p>
+      {{end}}
+      {{else}}
+      <p class="muted">No prices recorded yet.</p>
+      {{end}}
+
+      <form class="price-add" method="post" action="/items/{{$it.ID}}/price">
+        <input name="source" list="price-sources" placeholder="Shop" required>
+        <datalist id="price-sources">
+          <option value="Adafruit"><option value="Amazon"><option value="AliExpress">
+          <option value="Mouser"><option value="Digi-Key"><option value="LCSC"><option value="eBay">
+        </datalist>
+        <input name="amount" inputmode="decimal" placeholder="19.95" required>
+        <input name="url" type="url" placeholder="link (optional)">
+        <button class="btn" type="submit">Save price</button>
+      </form>
+    </section>
 
     {{if $it.Notes}}<div class="notes">{{$it.Notes}}</div>{{end}}
 

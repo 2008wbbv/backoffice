@@ -56,23 +56,17 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		Stats:    stats,
 		Recent:   firstN(recent, 12),
 		LowStock: lowStock(low, 8),
-		Tags:     firstNFacets(tags, 24),
+		Tags:     firstN(tags, 24),
 		Unfiled:  stats.Unfiled,
 	})
 }
 
-func firstN(items []Item, n int) []Item {
-	if len(items) > n {
-		return items[:n]
+// firstN caps a slice for the dashboard panels.
+func firstN[T any](s []T, n int) []T {
+	if len(s) > n {
+		return s[:n]
 	}
-	return items
-}
-
-func firstNFacets(f []Facet, n int) []Facet {
-	if len(f) > n {
-		return f[:n]
-	}
-	return f
+	return s
 }
 
 // lowStock keeps only the genuinely low items -- an inventory where nothing is

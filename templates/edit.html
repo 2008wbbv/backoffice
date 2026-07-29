@@ -8,11 +8,24 @@
       action="{{if $d.IsNew}}/items{{else}}/items/{{$it.ID}}{{end}}">
   <h1>{{if $d.IsNew}}Add item{{else}}Edit item{{end}}</h1>
 
-  <!-- Paste a product page or datasheet link and let the server read its
-       metadata, rather than typing it all out. -->
+  <!-- Two ways to avoid typing: search a shop's catalogue by name, or paste a
+       link and let the server read its metadata. -->
   <div class="import" id="import">
     <label class="field wide">
-      <span>Import from a link <em>optional — fills the fields below</em></span>
+      <span>Search for a part <em>looks it up for you — no link needed</em></span>
+      <div class="import-row">
+        <input type="search" id="search-q" placeholder="esp32 feather, ds18b20, 10k resistor…" autocomplete="off">
+        <button class="btn" type="button" id="search-go">Search</button>
+      </div>
+    </label>
+    <p class="import-status" id="search-status" hidden></p>
+    <div class="results" id="search-results" hidden></div>
+    <div class="external" id="search-external" hidden></div>
+
+    <hr class="import-sep">
+
+    <label class="field wide">
+      <span>…or import from a link <em>fills the fields below</em></span>
       <div class="import-row">
         <input type="url" id="import-url" placeholder="https://shop.example.com/esp32-devkit" autocomplete="off">
         <button class="btn" type="button" id="import-go">Fetch</button>
@@ -64,7 +77,17 @@
 
   <div class="row">
     <label class="field">
-      <span>Value / rating</span>
+      <span>Price <em>optional</em></span>
+      <div class="import-row">
+        <input name="price" id="f-price" inputmode="decimal" placeholder="19.95">
+        <input name="price_source" id="f-price_source" placeholder="Adafruit" aria-label="Price source">
+      </div>
+    </label>
+  </div>
+
+  <div class="row">
+    <label class="field">
+      <span>Value / rating <em>electrical, not money</em></span>
       <input name="value" id="f-value" value="{{$it.Value}}" placeholder="10kΩ 1% 0805">
     </label>
     <label class="field">
@@ -78,7 +101,7 @@
     <input name="tags" id="f-tags" value="{{$it.TagString}}" placeholder="wifi, 3v3, smd" autocomplete="off">
     {{if $d.Tags}}
     <div class="tag-suggest" id="tag-suggest">
-      {{range $d.Tags}}<button class="chip xs" type="button" data-tag="{{.Value}}">{{.Value}}</button>{{end}}
+      {{range $d.Tags}}<button class="chip xs" type="button" data-tag="{{.Value}}">{{if .Icon}}<span class="ti">{{.Icon}}</span>{{end}}{{.Value}}</button>{{end}}
     </div>
     {{end}}
   </div>

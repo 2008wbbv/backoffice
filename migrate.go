@@ -102,9 +102,32 @@ CREATE INDEX idx_item_tags_tag ON item_tags(tag_id);
 				return err
 			}
 
+			// This insert is deliberately written against the tags table as it
+			// exists at *this* step, rather than calling the shared helper.
+			// A migration has to keep working against the schema of its own
+			// moment: the helper later learned to write an icon column that
+			// does not exist until the next migration.
+			link := func(itemID int64, name string) error {
+				var id int64
+				err := tx.QueryRow(`SELECT id FROM tags WHERE name = ?`, name).Scan(&id)
+				if err == sql.ErrNoRows {
+					res, err := tx.Exec(`INSERT INTO tags (name) VALUES (?)`, name)
+					if err != nil {
+						return err
+					}
+					if id, err = res.LastInsertId(); err != nil {
+						return err
+					}
+				} else if err != nil {
+					return err
+				}
+				_, err = tx.Exec(`INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)`, itemID, id)
+				return err
+			}
+
 			for itemID, raw := range existing {
 				for _, name := range splitTags(raw) {
-					if err := attachTagTx(tx, itemID, name); err != nil {
+					if err := link(itemID, name); err != nil {
 						return err
 					}
 				}
@@ -113,6 +136,52 @@ CREATE INDEX idx_item_tags_tag ON item_tags(tag_id);
 			_, err = tx.Exec(`ALTER TABLE items DROP COLUMN tags`)
 			return err
 		},
+	},
+	{
+		name: "tag icons",
+		sql:  `ALTER TABLE tags ADD COLUMN icon TEXT NOT NULL DEFAULT '';`,
+		// Give the tags that already exist an icon, so the upgrade is visible
+		// rather than leaving a wall of blank tags.
+		fn: func(tx *sql.Tx) error {
+			rows, err := tx.Query(`SELECT id, name FROM tags`)
+			if err != nil {
+				return err
+			}
+			icons := map[int64]string{}
+			for rows.Next() {
+				var id int64
+				var name string
+				if err := rows.Scan(&id, &name); err != nil {
+					rows.Close()
+					return err
+				}
+				icons[id] = IconForTag(name)
+			}
+			rows.Close()
+			if err := rows.Err(); err != nil {
+				return err
+			}
+			for id, icon := range icons {
+				if _, err := tx.Exec(`UPDATE tags SET icon = ? WHERE id = ?`, icon, id); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	},
+	{
+		name: "prices per source",
+		sql: `
+CREATE TABLE prices (
+	item_id    INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+	source     TEXT    NOT NULL,
+	amount     REAL    NOT NULL,
+	currency   TEXT    NOT NULL DEFAULT 'USD',
+	url        TEXT    NOT NULL DEFAULT '',
+	updated_at TEXT    NOT NULL,
+	PRIMARY KEY (item_id, source)
+);
+`,
 	},
 }
 
@@ -181,7 +250,7 @@ func attachTagTx(tx *sql.Tx, itemID int64, name string) error {
 	var id int64
 	err := tx.QueryRow(`SELECT id FROM tags WHERE name = ?`, name).Scan(&id)
 	if err == sql.ErrNoRows {
-		res, err := tx.Exec(`INSERT INTO tags (name) VALUES (?)`, name)
+		res, err := tx.Exec(`INSERT INTO tags (name, icon) VALUES (?, ?)`, name, IconForTag(name))
 		if err != nil {
 			return err
 		}

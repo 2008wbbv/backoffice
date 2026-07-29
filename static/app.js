@@ -135,10 +135,13 @@ if (importGo) {
 
       fill('f-name', data.name);
       fill('f-notes', data.notes);
-      fill('f-value', data.value);
       fill('f-part_number', data.part_number);
       fill('f-link', data.link, { force: true });
       fill('f-image_url', data.image_url, { force: true });
+      if (data.price > 0) {
+        fill('f-price', String(data.price), { force: true });
+        fill('f-price_source', data.site || hostOf(data.link), { force: true });
+      }
 
       if (data.image_url) {
         document.getElementById('import-thumb').src = data.image_url;
@@ -159,6 +162,134 @@ if (importGo) {
     if (e.key === 'Enter') { e.preventDefault(); run(); }
   });
 }
+
+// --- search a shop's catalogue by name ------------------------------------
+// The server queries the sources it can actually reach and says which ones it
+// cannot; picking a result fills the form in, exactly like the link importer.
+const searchGo = document.getElementById('search-go');
+if (searchGo) {
+  const input = document.getElementById('search-q');
+  const status = document.getElementById('search-status');
+  const list = document.getElementById('search-results');
+  const external = document.getElementById('search-external');
+
+  const say = (msg, cls) => {
+    status.textContent = msg;
+    status.className = 'import-status' + (cls ? ' ' + cls : '');
+    status.hidden = !msg;
+  };
+
+  const pick = (r) => {
+    setField('f-name', r.title);
+    setField('f-part_number', r.part_number);
+    setField('f-link', r.url, true);
+    setField('f-image_url', r.image_url, true);
+    if (r.price > 0) {
+      setField('f-price', r.price.toFixed(2), true);
+      setField('f-price_source', r.source, true);
+    }
+    list.querySelectorAll('.result').forEach((el) => el.classList.remove('on'));
+    say(`Filled in from ${r.source}. Edit anything before saving.`, '');
+    document.getElementById('f-name').focus();
+  };
+
+  const run = async () => {
+    const q = input.value.trim();
+    if (!q) { say('Type a part name first.', 'bad'); return; }
+
+    searchGo.disabled = true;
+    say('Searching…', 'busy');
+    list.hidden = true;
+    external.hidden = true;
+
+    try {
+      const res = await fetch('/import/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ q }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'search failed');
+
+      list.textContent = '';
+      (data.results || []).forEach((r) => {
+        const el = document.createElement('button');
+        el.type = 'button';
+        el.className = 'result';
+        el.innerHTML = `
+          <span class="r-img">${r.image_url ? `<img src="${escapeAttr(r.image_url)}" alt="" loading="lazy">` : ''}</span>
+          <span class="r-body">
+            <span class="r-title"></span>
+            <span class="r-meta">
+              <span class="r-src"></span>
+              ${r.price > 0 ? `<span class="r-price">${escapeHTML(formatPrice(r.price, r.currency))}</span>` : ''}
+              ${r.stock ? `<span class="muted"></span>` : ''}
+            </span>
+          </span>`;
+        // Text goes in via textContent so a shop's title cannot inject markup.
+        el.querySelector('.r-title').textContent = r.title;
+        el.querySelector('.r-src').textContent = r.source;
+        if (r.stock) el.querySelector('.r-meta .muted').textContent = r.stock;
+        el.addEventListener('click', () => pick(r));
+        list.append(el);
+      });
+
+      const notes = data.notes || [];
+      if (!data.results || data.results.length === 0) {
+        say(notes.length ? notes.join(' · ') : 'Nothing found in the catalogues I can search.', 'bad');
+      } else {
+        list.hidden = false;
+        say(notes.length ? notes.join(' · ') : `${data.results.length} result(s) — click one to fill the form.`,
+            notes.length ? 'bad' : '');
+      }
+
+      // Shops that block server-side lookups still get a link out.
+      if (data.external && data.external.length) {
+        external.textContent = 'Search there yourself: ';
+        data.external.forEach((s) => {
+          const a = document.createElement('a');
+          a.className = 'chip sm';
+          a.href = s.SearchURL;
+          a.target = '_blank';
+          a.rel = 'noreferrer noopener';
+          a.textContent = s.Name;
+          a.title = s.Note;
+          external.append(a, ' ');
+        });
+        external.hidden = false;
+      }
+    } catch (err) {
+      say(err.message, 'bad');
+    } finally {
+      searchGo.disabled = false;
+    }
+  };
+
+  searchGo.addEventListener('click', run);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); run(); }
+  });
+}
+
+function setField(id, value, force) {
+  const el = document.getElementById(id);
+  if (!el || !value) return;
+  if (force || !el.value.trim()) el.value = value;
+}
+
+function hostOf(link) {
+  try { return new URL(link).hostname.replace(/^www\./, ''); } catch { return ''; }
+}
+
+function formatPrice(amount, currency) {
+  const symbols = { USD: '$', EUR: '\u20ac', GBP: '\u00a3', JPY: '\u00a5' };
+  const s = symbols[currency || 'USD'];
+  return s ? s + amount.toFixed(2) : `${currency} ${amount.toFixed(2)}`;
+}
+
+const escapeHTML = (s) => String(s).replace(/[&<>"']/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const escapeAttr = escapeHTML;
 
 // --- tag picker -------------------------------------------------------------
 // Clicking an existing tag toggles it in the comma-separated field, which stays

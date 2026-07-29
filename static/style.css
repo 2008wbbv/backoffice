@@ -368,3 +368,77 @@ a.tile:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
   border: 1px solid var(--line); border-radius: 9px; width: 100%;
 }
 .empty.small { padding: 5vh 16px; }
+
+/* --- search results, prices, tag icons -------------------------------------- */
+
+.import-sep { border: none; border-top: 1px solid var(--line); margin: 14px 0 4px; }
+
+.results { display: grid; gap: 6px; margin-top: 10px; max-height: 380px; overflow-y: auto; }
+.result {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 7px 9px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel-2); color: var(--text); font: inherit; cursor: pointer;
+}
+.result:hover { border-color: var(--accent); }
+.r-img { width: 46px; height: 46px; flex: none; border-radius: 7px; overflow: hidden; background: var(--panel); }
+.r-img img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.r-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.r-title { font-size: 14px; line-height: 1.25; }
+.r-meta { display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; }
+.r-src { color: var(--muted); }
+.r-price { font-weight: 620; font-variant-numeric: tabular-nums; }
+
+.external { margin-top: 10px; font-size: 13px; color: var(--muted); }
+.external .chip { margin-right: 2px; }
+
+/* Price badge on a grid card */
+.price-tag {
+  position: absolute; left: 6px; bottom: 6px;
+  padding: 1px 7px; border-radius: 999px; font-size: 11.5px; font-weight: 600;
+  background: rgba(0,0,0,.62); color: #fff; font-variant-numeric: tabular-nums;
+}
+
+/* Prices on the item page */
+.prices { margin: 4px 0 18px; }
+.prices h2 { font-size: 14px; font-weight: 600; margin: 0 0 8px; }
+.prices ul { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.prices li {
+  display: flex; align-items: center; gap: 9px; font-size: 13.5px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 5px 6px 5px 11px;
+}
+.prices .src { min-width: 84px; }
+.prices .amt { font-weight: 620; font-variant-numeric: tabular-nums; }
+.prices .when { margin-left: auto; font-size: 12px; }
+.prices form { margin: 0; }
+.line-value { font-size: 12.5px; margin: 0 0 10px; }
+.price-add { display: flex; gap: 6px; flex-wrap: wrap; }
+.price-add input {
+  padding: 7px 10px; font: inherit; font-size: 13.5px;
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--line); border-radius: 8px; min-width: 0;
+}
+.price-add input[name=source] { flex: 0 1 120px; }
+.price-add input[name=amount] { flex: 0 1 90px; }
+.price-add input[name=url] { flex: 1 1 150px; }
+
+/* Tag icons */
+.ti { font-size: 1.05em; line-height: 1; margin-right: 1px; }
+
+/* Tag admin page */
+.page-title { font-size: 23px; margin: 0 0 4px; letter-spacing: -.015em; }
+.page-sub { margin: 0 0 18px; font-size: 14px; }
+.tag-admin { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }
+.tag-admin form {
+  display: flex; align-items: center; gap: 9px; margin: 0;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 9px; padding: 6px 9px;
+}
+.icon-input {
+  width: 46px; text-align: center; font-size: 17px; padding: 5px 4px;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--line); border-radius: 7px;
+}
+.tag-admin .tag-name { color: var(--text); font-weight: 540; }
+.tag-admin .muted { margin-left: auto; font-size: 12.5px; }

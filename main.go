@@ -61,6 +61,7 @@ type App struct {
 	tmpl    *template.Template
 	auth    *Auth
 	fetcher *Fetcher
+	search  *SearchHub
 }
 
 func main() {
@@ -85,13 +86,15 @@ func main() {
 		log.Fatalf("auth: %v", err)
 	}
 
+	fetcher := NewFetcher(cfg.AllowPrivate)
 	app := &App{
 		cfg:     cfg,
 		store:   &Store{db: db},
 		photos:  photos,
 		tmpl:    mustTemplates(),
 		auth:    auth,
-		fetcher: NewFetcher(cfg.AllowPrivate),
+		fetcher: fetcher,
+		search:  NewSearchHub(fetcher),
 	}
 
 	srv := &http.Server{
@@ -166,7 +169,16 @@ func (a *App) routes() http.Handler {
 	protected.HandleFunc("POST /folders/{id}", a.handleRenameFolder)
 	protected.HandleFunc("POST /folders/{id}/delete", a.handleDeleteFolder)
 
-	// Import from a URL, used by the add/edit form.
+	// Prices
+	protected.HandleFunc("POST /items/{id}/price", a.handleSetPrice)
+	protected.HandleFunc("POST /items/{id}/price/delete", a.handleDeletePrice)
+
+	// Tags
+	protected.HandleFunc("GET /tags", a.handleTags)
+	protected.HandleFunc("POST /tags/icon", a.handleSetTagIcon)
+
+	// Look a part up by name, or read a URL the person pasted.
+	protected.HandleFunc("POST /import/search", a.handleSearch)
 	protected.HandleFunc("POST /import/preview", a.handleImportPreview)
 
 	mux.Handle("/", a.auth.Require(protected))
@@ -204,7 +216,8 @@ func templateFuncs() template.FuncMap {
 				return t.Local().Format("2 Jan 2006")
 			}
 		},
-		"add": func(a, b int) int { return a + b },
+		"add":   func(a, b int) int { return a + b },
+		"money": func(amount float64) string { return formatMoney(amount, "USD") },
 
 		// dict lets a page pass several named values into a shared partial.
 		"dict": func(pairs ...any) map[string]any {

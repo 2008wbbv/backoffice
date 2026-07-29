@@ -1,0 +1,31 @@
+{{define "tags.html"}}
+{{template "top" .}}
+{{$d := .Data}}
+
+<p class="crumb"><a href="/">← Dashboard</a></p>
+<h1 class="page-title">Tags</h1>
+<p class="muted page-sub">Icons are guessed from the tag name when a tag is first used. Change any of them here.</p>
+
+{{if $d.Tags}}
+<ul class="tag-admin">
+  {{range $d.Tags}}
+  <li>
+    <form method="post" action="/tags/icon">
+      <input type="hidden" name="name" value="{{.Value}}">
+      <input class="icon-input" name="icon" value="{{.Icon}}" maxlength="4" aria-label="Icon for {{.Value}}">
+      <a class="tag-name" href="/items?tag={{.Value}}">{{.Value}}</a>
+      <span class="muted">{{.Count}} item{{if ne .Count 1}}s{{end}}</span>
+      <button class="btn tiny" type="submit">Save</button>
+    </form>
+  </li>
+  {{end}}
+</ul>
+{{else}}
+<div class="empty small">
+  <p><strong>No tags yet.</strong></p>
+  <p class="muted">Tags appear here once you add them to an item.</p>
+</div>
+{{end}}
+
+{{template "bottom" .}}
+{{end}}

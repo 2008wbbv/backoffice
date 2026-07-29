@@ -19,11 +19,11 @@ import (
 
 func TestTagsAreStoredNormalisedAndCaseFolded(t *testing.T) {
 	app := newTestApp(t)
-	id := seed(t, app.store, Item{Name: "ESP32", Tags: []string{"WiFi", "3v3"}})[0]
+	id := seed(t, app.store, Item{Name: "ESP32", Tags: tags("WiFi", "3v3")})[0]
 
 	// A second item reusing the same tag in different case must not create a
 	// duplicate row, or the tag filter shows the same tag twice.
-	seed(t, app.store, Item{Name: "ESP8266", Tags: []string{"wifi"}})
+	seed(t, app.store, Item{Name: "ESP8266", Tags: tags("wifi")})
 
 	facets, err := app.store.TagFacets()
 	if err != nil {
@@ -49,9 +49,9 @@ func TestTagsAreStoredNormalisedAndCaseFolded(t *testing.T) {
 func TestFilteringBySeveralTagsNarrows(t *testing.T) {
 	app := newTestApp(t)
 	seed(t, app.store,
-		Item{Name: "SMD resistor", Tags: []string{"smd", "passive"}},
-		Item{Name: "SMD LED", Tags: []string{"smd", "optical"}},
-		Item{Name: "Through-hole resistor", Tags: []string{"tht", "passive"}},
+		Item{Name: "SMD resistor", Tags: tags("smd", "passive")},
+		Item{Name: "SMD LED", Tags: tags("smd", "optical")},
+		Item{Name: "Through-hole resistor", Tags: tags("tht", "passive")},
 	)
 
 	one, _ := app.store.ListItems(Query{Tags: []string{"smd"}})
@@ -70,10 +70,10 @@ func TestFilteringBySeveralTagsNarrows(t *testing.T) {
 
 func TestUpdatingTagsRemovesOrphans(t *testing.T) {
 	app := newTestApp(t)
-	id := seed(t, app.store, Item{Name: "Board", Tags: []string{"temporary"}})[0]
+	id := seed(t, app.store, Item{Name: "Board", Tags: tags("temporary")})[0]
 
 	it, _ := app.store.GetItem(id)
-	it.Tags = []string{"kept"}
+	it.Tags = tags("kept")
 	if err := app.store.UpdateItem(it); err != nil {
 		t.Fatalf("UpdateItem: %v", err)
 	}
@@ -310,8 +310,8 @@ func TestFetchPageReadsOpenGraphMetadata(t *testing.T) {
 	if meta.Description != "38-pin devkit with USB-C." {
 		t.Errorf("description = %q, want whitespace collapsed", meta.Description)
 	}
-	if meta.Value != "USD 7.50" {
-		t.Errorf("value = %q, want the price with its currency", meta.Value)
+	if meta.Price != 7.50 || meta.Currency != "USD" {
+		t.Errorf("price = %v %s, want 7.50 USD", meta.Price, meta.Currency)
 	}
 	if meta.PartNumber != "ESP32-WROOM-32E" {
 		t.Errorf("part number = %q", meta.PartNumber)
@@ -361,7 +361,7 @@ func TestImportPreviewEndpointReturnsFields(t *testing.T) {
 		t.Fatalf("status = %d, want 200", res.StatusCode)
 	}
 	body := readAll(t, res.Body)
-	for _, want := range []string{"ESP32-WROOM-32 Development Board", "USD 7.50", "ESP32-WROOM-32E", "/img/board.jpg"} {
+	for _, want := range []string{"ESP32-WROOM-32 Development Board", "7.5", "ESP32-WROOM-32E", "/img/board.jpg"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("preview response missing %q\ngot: %s", want, body)
 		}
@@ -513,7 +513,7 @@ func TestDashboardAndFolderPagesRender(t *testing.T) {
 	app := newTestApp(t)
 	lab, _ := app.store.CreateFolder("Lab bench", nil)
 	seed(t, app.store,
-		Item{Name: "Soldering iron", Quantity: 1, FolderID: &lab, Tags: []string{"tools"}},
+		Item{Name: "Soldering iron", Quantity: 1, FolderID: &lab, Tags: tags("tools")},
 		Item{Name: "Empty reel", Quantity: 0},
 	)
 
@@ -664,5 +664,276 @@ func TestUndecodableButValidImageIsKept(t *testing.T) {
 	// Genuinely non-image uploads are still refused.
 	if _, err := app.photos.Save(strings.NewReader("<html>not an image</html>"), "page.html"); err == nil {
 		t.Error("a non-image was accepted")
+	}
+}
+
+// --- search -----------------------------------------------------------------
+
+// adafruitFixture mirrors the real catalogue's shape: every field is a JSON
+// string, prices and ids included. Decoding these as numbers is exactly the
+// mistake that made the first version return nothing.
+const adafruitFixture = `[
+ {"product_id":"3405","product_name":"Adafruit HUZZAH32 ESP32 Feather Board","product_price":"19.95",
+  "product_image":"https://cdn-shop.adafruit.com/640x480/3405-08.jpg","product_mpn":"ADA3405",
+  "product_stock":"in stock","product_url":"https://www.adafruit.com/product/3405"},
+ {"product_id":"381","product_name":"Waterproof DS18B20 Digital temperature sensor","product_price":"9.95",
+  "product_image":"https://cdn-shop.adafruit.com/640x480/381-00.jpg","product_mpn":"ADA381",
+  "product_stock":"42","product_url":"https://www.adafruit.com/product/381"},
+ {"product_id":"165","product_name":"TMP36 Temperature sensor","product_price":"2.75",
+  "product_image":"","product_mpn":"ADA165","product_stock":"0","product_url":""}
+]`
+
+func adafruitTestProvider(t *testing.T, body string) (*AdafruitProvider, *httptest.Server, *int) {
+	t.Helper()
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, body)
+	}))
+	t.Cleanup(srv.Close)
+
+	p := NewAdafruitProvider(NewFetcher(true))
+	p.catalogURL = srv.URL
+	return p, srv, &calls
+}
+
+func TestAdafruitSearchReadsStringFields(t *testing.T) {
+	p, _, _ := adafruitTestProvider(t, adafruitFixture)
+
+	got, err := p.Search(context.Background(), "ds18b20", 10)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d results, want 1: %+v", len(got), got)
+	}
+	r := got[0]
+	if r.Price != 9.95 {
+		t.Errorf("price = %v, want 9.95 parsed from the string field", r.Price)
+	}
+	if r.PartNumber != "ADA381" || r.Source != "Adafruit" {
+		t.Errorf("unexpected result %+v", r)
+	}
+	if r.Stock != "42 in stock" {
+		t.Errorf("stock = %q, want a numeric count rendered readably", r.Stock)
+	}
+	if r.URL == "" || r.ImageURL == "" {
+		t.Errorf("result is missing its link or image: %+v", r)
+	}
+}
+
+func TestAdafruitSearchRequiresEveryWordAndRanks(t *testing.T) {
+	p, _, _ := adafruitTestProvider(t, adafruitFixture)
+
+	got, _ := p.Search(context.Background(), "temperature sensor", 10)
+	if len(got) != 2 {
+		t.Fatalf("got %d results, want both temperature sensors", len(got))
+	}
+	// Relevance leads: the concise title whose words appear early beats the
+	// longer one, even though the longer one is the item in stock.
+	if got[0].Title != "TMP36 Temperature sensor" {
+		t.Errorf("ranked %q first; expected the closest title match", got[0].Title)
+	}
+
+	if none, _ := p.Search(context.Background(), "esp32 temperature", 10); len(none) != 0 {
+		t.Errorf("got %d results for a contradictory query, want 0", len(none))
+	}
+}
+
+func TestAdafruitStockBreaksTiesBetweenEqualMatches(t *testing.T) {
+	// Two identical titles, so relevance cannot separate them and availability
+	// is the only thing left to sort on.
+	const fixture = `[
+	 {"product_id":"1","product_name":"Widget board","product_price":"5.00","product_stock":"0","product_url":"u1"},
+	 {"product_id":"2","product_name":"Widget board","product_price":"5.00","product_stock":"7","product_url":"u2"}
+	]`
+	p, _, _ := adafruitTestProvider(t, fixture)
+
+	got, err := p.Search(context.Background(), "widget", 10)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d results, want 2", len(got))
+	}
+	if got[0].Stock != "7 in stock" {
+		t.Errorf("first result is %q; the in-stock one should win a tie", got[0].Stock)
+	}
+}
+
+func TestAdafruitCatalogIsCached(t *testing.T) {
+	p, _, calls := adafruitTestProvider(t, adafruitFixture)
+
+	for i := 0; i < 3; i++ {
+		if _, err := p.Search(context.Background(), "esp32", 5); err != nil {
+			t.Fatalf("search %d: %v", i, err)
+		}
+	}
+	if *calls != 1 {
+		t.Errorf("catalogue was downloaded %d times for 3 searches, want 1", *calls)
+	}
+}
+
+func TestSearchEndpointReportsUnreachableSourcesHonestly(t *testing.T) {
+	app := newTestApp(t)
+	// Point the provider at a dead address so the source fails.
+	dead, _, _ := adafruitTestProvider(t, adafruitFixture)
+	dead.catalogURL = "http://127.0.0.1:1/nope"
+	app.search = &SearchHub{providers: []SearchProvider{dead}}
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	res, err := http.PostForm(srv.URL+"/import/search", url.Values{"q": {"esp32"}})
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	defer res.Body.Close()
+	body := readAll(t, res.Body)
+
+	if !strings.Contains(body, "Adafruit:") {
+		t.Errorf("a failed source produced no note, so the UI cannot say why:\n%s", body)
+	}
+	// Shops that cannot be queried server-side still offer a way through.
+	for _, want := range []string{"Amazon", "AliExpress"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("response does not offer a %s link", want)
+		}
+	}
+}
+
+func TestParsePrice(t *testing.T) {
+	ok := map[string]float64{
+		"19.95": 19.95, "$19.95": 19.95, "USD 19.95": 19.95,
+		"1,234.50": 1234.50, "12,50": 12.50, " 7 ": 7, "": 0,
+	}
+	for in, want := range ok {
+		got, err := parsePrice(in)
+		if err != nil {
+			t.Errorf("parsePrice(%q) errored: %v", in, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("parsePrice(%q) = %v, want %v", in, got, want)
+		}
+	}
+	for _, bad := range []string{"free", "-5", "abc"} {
+		if _, err := parsePrice(bad); err == nil {
+			t.Errorf("parsePrice(%q) was accepted", bad)
+		}
+	}
+}
+
+// --- prices -----------------------------------------------------------------
+
+func TestPricesPerSourceAndShelfValue(t *testing.T) {
+	app := newTestApp(t)
+	id := seed(t, app.store, Item{Name: "ESP32 devkit", Quantity: 4})[0]
+
+	for _, p := range []Price{
+		{Source: "Adafruit", Amount: 19.95, Currency: "USD"},
+		{Source: "AliExpress", Amount: 4.20, Currency: "USD"},
+		{Source: "Amazon", Amount: 12.99, Currency: "USD"},
+	} {
+		if err := app.store.SetPrice(id, p); err != nil {
+			t.Fatalf("SetPrice(%s): %v", p.Source, err)
+		}
+	}
+
+	it, _ := app.store.GetItem(id)
+	if len(it.Prices) != 3 {
+		t.Fatalf("got %d prices, want one per source", len(it.Prices))
+	}
+	best := it.Best()
+	if best == nil || best.Source != "AliExpress" {
+		t.Errorf("best price = %+v, want the cheapest (AliExpress)", best)
+	}
+	if got := it.LineValue(); got != 4*4.20 {
+		t.Errorf("line value = %v, want quantity x cheapest", got)
+	}
+
+	// Re-recording a source replaces it rather than stacking up.
+	if err := app.store.SetPrice(id, Price{Source: "AliExpress", Amount: 5.50}); err != nil {
+		t.Fatalf("SetPrice again: %v", err)
+	}
+	it, _ = app.store.GetItem(id)
+	if len(it.Prices) != 3 {
+		t.Errorf("re-pricing a source added a row; got %d", len(it.Prices))
+	}
+
+	stats, err := app.store.Stats()
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	if stats.Value != 4*5.50 {
+		t.Errorf("shelf value = %v, want 22 (4 x cheapest 5.50)", stats.Value)
+	}
+
+	if err := app.store.DeletePrice(id, "Amazon"); err != nil {
+		t.Fatalf("DeletePrice: %v", err)
+	}
+	it, _ = app.store.GetItem(id)
+	if len(it.Prices) != 2 {
+		t.Errorf("after deleting one source there are %d prices, want 2", len(it.Prices))
+	}
+}
+
+func TestItemWithNoPriceHasNoBest(t *testing.T) {
+	app := newTestApp(t)
+	id := seed(t, app.store, Item{Name: "Mystery part", Quantity: 3})[0]
+	it, _ := app.store.GetItem(id)
+	if it.Best() != nil {
+		t.Error("an item with no prices reported a best price")
+	}
+	if it.LineValue() != 0 {
+		t.Error("an item with no prices contributed value")
+	}
+}
+
+// --- tag icons --------------------------------------------------------------
+
+func TestTagIconsAreAssignedAndOverridable(t *testing.T) {
+	app := newTestApp(t)
+	seed(t, app.store, Item{Name: "Board", Tags: tags("wifi", "zzz-unknown-tag")})
+
+	facets, err := app.store.TagFacets()
+	if err != nil {
+		t.Fatalf("TagFacets: %v", err)
+	}
+	icons := map[string]string{}
+	for _, f := range facets {
+		icons[f.Value] = f.Icon
+	}
+	if icons["wifi"] != "📶" {
+		t.Errorf("wifi icon = %q, want the keyword match", icons["wifi"])
+	}
+	if icons["zzz-unknown-tag"] == "" {
+		t.Error("an unrecognised tag got no icon; every tag should get one")
+	}
+
+	if err := app.store.SetTagIcon("wifi", "🛜"); err != nil {
+		t.Fatalf("SetTagIcon: %v", err)
+	}
+	facets, _ = app.store.TagFacets()
+	for _, f := range facets {
+		if f.Value == "wifi" && f.Icon != "🛜" {
+			t.Errorf("icon override did not stick: %q", f.Icon)
+		}
+	}
+}
+
+func TestIconForTagIsStable(t *testing.T) {
+	// Same input, same icon -- otherwise tags would flicker between renders.
+	for _, name := range []string{"wibble", "another-odd-tag", "x"} {
+		if IconForTag(name) != IconForTag(name) {
+			t.Errorf("IconForTag(%q) is not deterministic", name)
+		}
+	}
+	if IconForTag("ESP32-S3") != IconForTag("esp32-s3") {
+		t.Error("icon lookup should be case-insensitive")
+	}
+	if IconForTag("") != "" {
+		t.Error("an empty tag should get no icon")
 	}
 }

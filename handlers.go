@@ -164,7 +164,7 @@ func (a *App) handleNewForm(w http.ResponseWriter, r *http.Request) {
 		FolderID: optionalID(r.URL.Query().Get("folder")),
 	}
 	if tag := strings.TrimSpace(r.URL.Query().Get("tag")); tag != "" {
-		item.Tags = []string{tag}
+		item.Tags = []Tag{{Name: tag, Icon: IconForTag(tag)}}
 	}
 	a.render(w, r, "edit.html", "New item", editData{
 		Item:       item,
@@ -235,9 +235,12 @@ func itemFromForm(r *http.Request) (Item, error) {
 	if qty < 0 {
 		qty = 0
 	}
-	// The tag field is a comma-separated text input; the checkbox list of
-	// existing tags posts additional values under the same name.
-	tags := splitTags(strings.Join(append(r.Form["tags"], r.Form["tag"]...), ","))
+	// The tag field is a comma-separated text input; the picker below it posts
+	// additional values under the same name.
+	var tags []Tag
+	for _, name := range splitTags(strings.Join(append(r.Form["tags"], r.Form["tag"]...), ",")) {
+		tags = append(tags, Tag{Name: name, Icon: IconForTag(name)})
+	}
 
 	return Item{
 		Name:       name,
@@ -272,6 +275,7 @@ func (a *App) handleCreate(w http.ResponseWriter, r *http.Request) {
 	if urlMsg := a.savePhotoFromURL(r, id, r.FormValue("image_url")); urlMsg != "" {
 		msg = strings.TrimPrefix(msg+"; "+urlMsg, "; ")
 	}
+	a.savePriceFromForm(r, id)
 	redirect(w, r, fmt.Sprintf("/items/%d", id), "Added "+it.Name, msg)
 }
 
@@ -298,7 +302,47 @@ func (a *App) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	if urlMsg := a.savePhotoFromURL(r, id, r.FormValue("image_url")); urlMsg != "" {
 		msg = strings.TrimPrefix(msg+"; "+urlMsg, "; ")
 	}
+	a.savePriceFromForm(r, id)
 	redirect(w, r, fmt.Sprintf("/items/%d", id), "Saved", msg)
+}
+
+// savePriceFromForm records the optional price on the add/edit form. A price
+// with no source still counts -- it is filed against the link's host, or
+// "Unknown" -- because losing a figure someone typed is worse than guessing.
+func (a *App) savePriceFromForm(r *http.Request, itemID int64) {
+	amount, err := parsePrice(r.FormValue("price"))
+	if err != nil || amount <= 0 {
+		return
+	}
+	source := strings.TrimSpace(r.FormValue("price_source"))
+	if source == "" {
+		source = sourceFromURL(r.FormValue("link"))
+	}
+	if err := a.store.SetPrice(itemID, Price{
+		Source:   source,
+		Amount:   amount,
+		Currency: strings.ToUpper(orDefault(r.FormValue("currency"), "USD")),
+		URL:      strings.TrimSpace(r.FormValue("link")),
+	}); err != nil {
+		log.Printf("save price: %v", err)
+	}
+}
+
+// sourceFromURL turns a product link into a shop name, so a price imported
+// from a page is filed under something recognisable.
+func sourceFromURL(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" {
+		return "Unknown"
+	}
+	host := strings.TrimPrefix(strings.ToLower(u.Host), "www.")
+	if i := strings.IndexByte(host, '.'); i > 0 {
+		host = host[:i]
+	}
+	if host == "" {
+		return "Unknown"
+	}
+	return strings.ToUpper(host[:1]) + host[1:]
 }
 
 func (a *App) handleDelete(w http.ResponseWriter, r *http.Request) {

@@ -12,7 +12,8 @@
   <div class="tile"><b>{{$d.Stats.Pieces}}</b><span>pieces</span></div>
   <a class="tile" href="/items?sort=low"><b{{if $d.Stats.OutOf}} class="warn"{{end}}>{{$d.Stats.OutOf}}</b><span>out of stock</span></a>
   <div class="tile"><b>{{$d.Stats.Folders}}</b><span>folders</span></div>
-  <div class="tile"><b>{{$d.Stats.Tags}}</b><span>tags</span></div>
+  <a class="tile" href="/tags"><b>{{$d.Stats.Tags}}</b><span>tags</span></a>
+  <div class="tile"><b>{{$d.Stats.ValueDisplay}}</b><span>shelf value</span></div>
 </div>
 
 <section class="panel-block">
@@ -58,9 +59,9 @@
 
 {{if $d.Tags}}
 <section class="panel-block">
-  <div class="section-head"><h2>Tags</h2></div>
+  <div class="section-head"><h2>Tags</h2><a class="chip sm" href="/tags">Manage icons</a></div>
   <div class="filter-row">
-    {{range $d.Tags}}<a class="chip" href="/items?tag={{.Value}}">{{.Value}} <span class="n">{{.Count}}</span></a>{{end}}
+    {{range $d.Tags}}<a class="chip" href="/items?tag={{.Value}}">{{if .Icon}}<span class="ti">{{.Icon}}</span>{{end}}{{.Value}} <span class="n">{{.Count}}</span></a>{{end}}
   </div>
 </section>
 {{end}}

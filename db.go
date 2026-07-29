@@ -29,8 +29,59 @@ type Item struct {
 	UpdatedAt  time.Time
 
 	FolderName string
-	Tags       []string
+	Tags       []Tag
 	Photos     []Photo
+	Prices     []Price
+}
+
+// Tag is a label plus the icon shown with it.
+type Tag struct {
+	Name string
+	Icon string
+}
+
+// Price is what one source charges for an item. At most one row per source, so
+// re-importing from Adafruit updates that figure rather than piling up.
+type Price struct {
+	Source    string
+	Amount    float64
+	Currency  string
+	URL       string
+	UpdatedAt time.Time
+}
+
+func (p Price) Display() string { return formatMoney(p.Amount, p.Currency) }
+
+func formatMoney(amount float64, currency string) string {
+	if currency == "" {
+		currency = "USD"
+	}
+	symbol := map[string]string{"USD": "$", "EUR": "€", "GBP": "£", "JPY": "¥"}[currency]
+	if symbol == "" {
+		return fmt.Sprintf("%s %.2f", currency, amount)
+	}
+	return fmt.Sprintf("%s%.2f", symbol, amount)
+}
+
+// Best is the cheapest recorded price, or nil when none is known. It returns a
+// pointer rather than (Price, bool) because html/template can only call methods
+// returning one value, or a value and an error.
+func (i Item) Best() *Price {
+	var best *Price
+	for idx := range i.Prices {
+		if best == nil || i.Prices[idx].Amount < best.Amount {
+			best = &i.Prices[idx]
+		}
+	}
+	return best
+}
+
+// LineValue is the cheapest price multiplied by how many are in stock.
+func (i Item) LineValue() float64 {
+	if best := i.Best(); best != nil {
+		return best.Amount * float64(i.Quantity)
+	}
+	return 0
 }
 
 // Thumb is the filename of the cover image, or "" when the item has no photo.
@@ -41,7 +92,13 @@ func (i Item) Thumb() string {
 	return i.Photos[0].Filename
 }
 
-func (i Item) TagString() string { return strings.Join(i.Tags, ", ") }
+func (i Item) TagString() string {
+	names := make([]string, len(i.Tags))
+	for j, t := range i.Tags {
+		names[j] = t.Name
+	}
+	return strings.Join(names, ", ")
+}
 
 // FolderRef and InFolder exist because html/template cannot dereference or
 // compare a *int64, and folder membership is optional.
@@ -307,7 +364,10 @@ func (s *Store) ListItems(q Query) ([]Item, error) {
 	if err := s.attachPhotos(items, byID); err != nil {
 		return nil, err
 	}
-	return items, s.attachTags(items, byID)
+	if err := s.attachTags(items, byID); err != nil {
+		return nil, err
+	}
+	return items, s.attachPrices(items, byID)
 }
 
 // attachPhotos and attachTags each cost one query for the whole page, rather
@@ -332,7 +392,7 @@ func (s *Store) attachPhotos(items []Item, byID map[int64]int) error {
 }
 
 func (s *Store) attachTags(items []Item, byID map[int64]int) error {
-	rows, err := s.db.Query(`SELECT it.item_id, t.name FROM item_tags it
+	rows, err := s.db.Query(`SELECT it.item_id, t.name, t.icon FROM item_tags it
 		JOIN tags t ON t.id = it.tag_id ORDER BY t.name COLLATE NOCASE`)
 	if err != nil {
 		return err
@@ -340,12 +400,35 @@ func (s *Store) attachTags(items []Item, byID map[int64]int) error {
 	defer rows.Close()
 	for rows.Next() {
 		var itemID int64
-		var name string
-		if err := rows.Scan(&itemID, &name); err != nil {
+		var tag Tag
+		if err := rows.Scan(&itemID, &tag.Name, &tag.Icon); err != nil {
 			return err
 		}
 		if idx, ok := byID[itemID]; ok {
-			items[idx].Tags = append(items[idx].Tags, name)
+			items[idx].Tags = append(items[idx].Tags, tag)
+		}
+	}
+	return rows.Err()
+}
+
+// attachPrices loads every item's recorded prices in one query.
+func (s *Store) attachPrices(items []Item, byID map[int64]int) error {
+	rows, err := s.db.Query(`SELECT item_id, source, amount, currency, url, updated_at
+		FROM prices ORDER BY amount`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var itemID int64
+		var p Price
+		var updated string
+		if err := rows.Scan(&itemID, &p.Source, &p.Amount, &p.Currency, &p.URL, &updated); err != nil {
+			return err
+		}
+		p.UpdatedAt, _ = time.Parse(time.RFC3339, updated)
+		if idx, ok := byID[itemID]; ok {
+			items[idx].Prices = append(items[idx].Prices, p)
 		}
 	}
 	return rows.Err()
@@ -364,6 +447,9 @@ func (s *Store) GetItem(id int64) (Item, error) {
 		return it, err
 	}
 	if err := s.attachTags(items, byID); err != nil {
+		return it, err
+	}
+	if err := s.attachPrices(items, byID); err != nil {
 		return it, err
 	}
 	return items[0], nil
@@ -421,12 +507,12 @@ func (s *Store) UpdateItem(it Item) error {
 
 // setTagsTx replaces an item's tags wholesale, then drops any tag row that no
 // longer has items so the tag filter never lists dead tags.
-func setTagsTx(tx *sql.Tx, itemID int64, tags []string) error {
+func setTagsTx(tx *sql.Tx, itemID int64, tags []Tag) error {
 	if _, err := tx.Exec(`DELETE FROM item_tags WHERE item_id = ?`, itemID); err != nil {
 		return err
 	}
-	for _, name := range tags {
-		if err := attachTagTx(tx, itemID, name); err != nil {
+	for _, t := range tags {
+		if err := attachTagTx(tx, itemID, t.Name); err != nil {
 			return err
 		}
 	}
@@ -740,6 +826,7 @@ func (f Folder) HasParent(id int64) bool { return f.ParentID != nil && *f.Parent
 // configured up front -- they are just whatever you have typed so far.
 type Facet struct {
 	Value string
+	Icon  string
 	Count int
 }
 
@@ -753,10 +840,30 @@ func (s *Store) Facets(column string) ([]Facet, error) {
 		WHERE ` + column + ` <> '' GROUP BY ` + column + ` ORDER BY ` + column + ` COLLATE NOCASE`)
 }
 
+// TagFacets lists tags in use, most-used first, with their icons.
 func (s *Store) TagFacets() ([]Facet, error) {
-	return s.facetQuery(`SELECT t.name, COUNT(*) FROM tags t
+	rows, err := s.db.Query(`SELECT t.name, t.icon, COUNT(*) FROM tags t
 		JOIN item_tags it ON it.tag_id = t.id
 		GROUP BY t.id ORDER BY COUNT(*) DESC, t.name COLLATE NOCASE`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Facet
+	for rows.Next() {
+		var f Facet
+		if err := rows.Scan(&f.Value, &f.Icon, &f.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// SetTagIcon changes the emoji shown for a tag.
+func (s *Store) SetTagIcon(name, icon string) error {
+	_, err := s.db.Exec(`UPDATE tags SET icon = ? WHERE name = ?`, icon, name)
+	return err
 }
 
 func (s *Store) facetQuery(query string, args ...any) ([]Facet, error) {
@@ -784,7 +891,11 @@ type Stats struct {
 	Tags    int
 	Unfiled int
 	OutOf   int // items at zero quantity
+	Priced  int
+	Value   float64 // cheapest known price x quantity, summed
 }
+
+func (s Stats) ValueDisplay() string { return formatMoney(s.Value, "USD") }
 
 func (s *Store) Stats() (Stats, error) {
 	var st Stats
@@ -799,7 +910,37 @@ func (s *Store) Stats() (Stats, error) {
 		(SELECT COUNT(*) FROM photos),
 		(SELECT COUNT(*) FROM folders),
 		(SELECT COUNT(*) FROM tags)`).Scan(&st.Photos, &st.Folders, &st.Tags)
+	if err != nil {
+		return st, err
+	}
+	// Value the shelf at the cheapest price recorded for each item.
+	err = s.db.QueryRow(`SELECT COUNT(*), COALESCE(SUM(cheapest * quantity), 0) FROM (
+		SELECT i.quantity AS quantity, MIN(p.amount) AS cheapest
+		FROM items i JOIN prices p ON p.item_id = i.id
+		GROUP BY i.id)`).Scan(&st.Priced, &st.Value)
 	return st, err
+}
+
+// --- prices -----------------------------------------------------------------
+
+// SetPrice records or replaces what one source charges for an item.
+func (s *Store) SetPrice(itemID int64, p Price) error {
+	if p.Currency == "" {
+		p.Currency = "USD"
+	}
+	_, err := s.db.Exec(`INSERT INTO prices (item_id, source, amount, currency, url, updated_at)
+		VALUES (?,?,?,?,?,?)
+		ON CONFLICT(item_id, source) DO UPDATE SET
+			amount = excluded.amount, currency = excluded.currency,
+			url = excluded.url, updated_at = excluded.updated_at`,
+		itemID, p.Source, p.Amount, p.Currency, p.URL,
+		time.Now().UTC().Format(time.RFC3339))
+	return err
+}
+
+func (s *Store) DeletePrice(itemID int64, source string) error {
+	_, err := s.db.Exec(`DELETE FROM prices WHERE item_id = ? AND source = ?`, itemID, source)
+	return err
 }
 
 func escapeLike(s string) string {

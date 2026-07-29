@@ -24,14 +24,15 @@ func (a *App) handleImportPreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	json.NewEncoder(w).Encode(map[string]any{
 		"name":        meta.Title,
 		"notes":       meta.Description,
-		"value":       meta.Value,
 		"part_number": meta.PartNumber,
 		"link":        meta.URL,
 		"image_url":   meta.ImageURL,
 		"site":        meta.SiteName,
+		"price":       meta.Price,
+		"currency":    meta.Currency,
 	})
 }
 

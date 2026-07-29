@@ -64,7 +64,7 @@ func TestSearchRequiresEveryWordToMatch(t *testing.T) {
 	seed(t, app.store,
 		Item{Name: "ESP32 devkit", Category: "MCU", Location: "Drawer 3", Quantity: 5},
 		Item{Name: "ESP32-CAM", Category: "MCU", Location: "Shelf B", Quantity: 2},
-		Item{Name: "Resistor 10k", Category: "Passive", Location: "Drawer 3", Quantity: 400, Tags: []string{"smd", "0805"}},
+		Item{Name: "Resistor 10k", Category: "Passive", Location: "Drawer 3", Quantity: 400, Tags: tags("smd", "0805")},
 	)
 
 	cases := []struct {
@@ -461,6 +461,16 @@ func TestAuthGatesEverythingButLoginAndHealth(t *testing.T) {
 }
 
 // --- helpers ----------------------------------------------------------------
+
+// tags builds the Tag slice the store takes, with each icon defaulted the way
+// the handlers do.
+func tags(names ...string) []Tag {
+	out := make([]Tag, len(names))
+	for i, n := range names {
+		out[i] = Tag{Name: n, Icon: IconForTag(n)}
+	}
+	return out
+}
 
 func contains(hay []string, needle string) bool {
 	for _, h := range hay {

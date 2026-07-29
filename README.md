@@ -77,13 +77,31 @@ Clicking tags on the dashboard or in the filter row **stacks** them — picking
 `smd` and then `0805` shows only items carrying both. Tags that stop being used
 disappear from the list on their own.
 
-### Importing from the web
+### Finding parts without typing them out
 
-Paste a product page, datasheet or wiki link into **Import from a link** on the
-add/edit form and press Fetch. The server reads the page's OpenGraph metadata and
-fills in the name, description, price, part number and a photo. Nothing is saved
-until you press Add/Save, and every field stays editable — it's a starting point,
-not an authority.
+The add/edit form has two shortcuts.
+
+**Search for a part** takes a name — "esp32 feather", "ds18b20", "10k resistor" —
+and looks it up for you, no link needed. Results come back with a photo, the
+price and stock, and clicking one fills the form in.
+
+Which shops can actually be searched from a server is not a matter of taste:
+
+| Source | Searchable from the server? |
+| --- | --- |
+| **Adafruit** | Yes. It publishes its whole catalogue as JSON, which is cached for six hours and searched locally, so only the first search waits. |
+| **Amazon** | No. Automated requests get a bot interstitial with no product data in it, and their terms direct you to the Product Advertising API, which needs an affiliate account. |
+| **AliExpress** | No. Server-side requests are bounced through redirects. |
+
+So rather than pretend, the search results include **Search there yourself**
+links for Amazon, AliExpress and Octopart. Those open in your browser, where the
+pages work normally — copy the URL back into the link importer, or just type the
+price in.
+
+**Import from a link** takes a product page, datasheet or wiki URL and reads its
+OpenGraph metadata: name, description, price, part number and a photo. Nothing is
+saved until you press Add/Save, and every field stays editable — both shortcuts
+are a starting point, not an authority.
 
 You can also paste an image URL directly, on the form or on an existing item's
 page ("…or pull one from the web"). Give it a product page instead of an image and
@@ -102,9 +120,24 @@ rather than the hostname. If you want to import from something on your own netwo
 (a LAN wiki, a local parts server), set `ALLOW_PRIVATE_FETCH=1` — but only do that
 if you trust everyone who can reach the app.
 
+### Prices
+
+Each item can carry one price per shop — Adafruit $19.95, AliExpress $4.20,
+whatever you paid at a market stall. Search and link imports record theirs
+automatically; the rest you add on the item page.
+
+The cheapest price shows as a badge on the item's card, and the dashboard totals
+the shelf: every item's cheapest price multiplied by how many you have.
+
+Note that **Value / rating** is a different field — it is the electrical value
+("10kΩ 1% 0805"), not money.
+
 ### Everything else
 
 - **Add an item** — name is the only required field.
+- **Tags carry icons.** An icon is guessed from the tag name the first time a tag
+  is used (`wifi` → 📶, `temperature` → 🌡, `battery` → 🔋); anything unrecognised
+  still gets a stable one. Change any of them under **Tags** on the dashboard.
 - **Locations and types configure themselves.** Type "Drawer 3" once and it becomes
   a filter chip and an autocomplete suggestion.
 - **Counts** — the `−` / `+` buttons adjust stock without opening the item. They
@@ -144,7 +177,7 @@ sqlite3 data/inventory.db ".backup 'backup.db'"
 ## Development
 
 ```sh
-go test ./...     # store, search, tags, folders, photos, EXIF, SSRF guards, HTTP
+go test ./...     # store, search, tags, folders, prices, photos, EXIF, SSRF, HTTP
 go vet ./...
 ```
 
@@ -153,11 +186,14 @@ Layout:
 | File | Contents |
 | --- | --- |
 | `main.go` | Config, routes, template helpers |
-| `db.go` | Item/folder/tag queries and the filter model |
+| `db.go` | Item/folder/tag/price queries and the filter model |
+| `search.go` | Part search providers and the Adafruit catalogue |
+| `tags.go` | Tag icon defaults |
 | `migrate.go` | Schema migrations, applied on startup |
 | `handlers.go` | Item and grid handlers |
 | `handlers_folders.go` | Dashboard and folder handlers |
 | `handlers_import.go` | Import-from-URL endpoints |
+| `handlers_search.go` | Part search, prices and tag icons |
 | `fetch.go` | Outbound fetching, SSRF guards, OpenGraph parsing |
 | `images.go` | Upload validation, thumbnails, EXIF orientation |
 | `auth.go` | Optional shared-password sessions |

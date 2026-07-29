@@ -158,7 +158,8 @@ type PageMeta struct {
 	Description string
 	ImageURL    string
 	SiteName    string
-	Value       string // price or spec, when the page states one
+	Price       float64 // when the page states one
+	Currency    string
 	PartNumber  string
 	URL         string
 }
@@ -189,9 +190,14 @@ func (f *Fetcher) FetchPage(ctx context.Context, raw string) (*PageMeta, error) 
 	pm.SiteName = firstOf(meta, "og:site_name", "application-name")
 	pm.PartNumber = firstOf(meta, "product:retailer_item_id", "product:mfr_part_no", "sku", "mpn")
 
-	if price := firstOf(meta, "product:price:amount", "og:price:amount", "twitter:data1"); price != "" {
-		currency := firstOf(meta, "product:price:currency", "og:price:currency")
-		pm.Value = strings.TrimSpace(currency + " " + price)
+	if raw := firstOf(meta, "product:price:amount", "og:price:amount"); raw != "" {
+		if amount, err := parsePrice(raw); err == nil && amount > 0 {
+			pm.Price = amount
+			pm.Currency = strings.ToUpper(firstOf(meta, "product:price:currency", "og:price:currency"))
+			if pm.Currency == "" {
+				pm.Currency = "USD"
+			}
+		}
 	}
 
 	if img := firstOf(meta, "og:image:secure_url", "og:image", "twitter:image", "twitter:image:src"); img != "" {
@@ -205,7 +211,6 @@ func (f *Fetcher) FetchPage(ctx context.Context, raw string) (*PageMeta, error) 
 
 	pm.Title = tidy(pm.Title, 200)
 	pm.Description = tidy(pm.Description, 600)
-	pm.Value = tidy(pm.Value, 60)
 	pm.PartNumber = tidy(pm.PartNumber, 80)
 	pm.SiteName = tidy(pm.SiteName, 80)
 
@@ -284,28 +289,13 @@ func cleanFetchError(err error) error {
 		return fmt.Errorf("could not look up %s", dns.Name)
 	}
 	var ue *url.Error
-	if ok := asURLError(err, &ue); ok {
+	if errors.As(err, &ue) {
 		if ue.Timeout() {
 			return fmt.Errorf("that site took too long to respond")
 		}
 		return fmt.Errorf("could not reach %s", ue.URL)
 	}
 	return err
-}
-
-func asURLError(err error, target **url.Error) bool {
-	for err != nil {
-		if ue, ok := err.(*url.Error); ok {
-			*target = ue
-			return true
-		}
-		u, ok := err.(interface{ Unwrap() error })
-		if !ok {
-			return false
-		}
-		err = u.Unwrap()
-	}
-	return false
 }
 
 // collectMeta indexes every <meta> by its name or property, plus <title>.
