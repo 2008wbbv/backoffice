@@ -51,8 +51,8 @@
 </ul>
 {{end}}
 
-<form class="search" method="get" action="/folders/{{$f.ID}}">
-  <input type="search" name="q" value="{{$q.Search}}" placeholder="Search in {{$f.Name}}…" autocomplete="off">
+<form class="search live-search" method="get" action="/folders/{{$f.ID}}">
+  <input type="search" name="q" value="{{$q.Search}}" placeholder="Search in {{$f.Name}}…" autocomplete="off" data-live-search>
   {{if $d.Recursive}}<input type="hidden" name="all" value="1">{{end}}
   <button class="btn" type="submit">Search</button>
 </form>

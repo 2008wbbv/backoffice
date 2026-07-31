@@ -37,8 +37,25 @@ type SearchHub struct {
 	providers []SearchProvider
 }
 
-func NewSearchHub(f *Fetcher) *SearchHub {
-	return &SearchHub{providers: []SearchProvider{NewAdafruitProvider(f)}}
+// NewSearchHub wires up every source that can actually be queried. Shops are
+// configurable because which ones matter depends on where you live.
+func NewSearchHub(f *Fetcher, shopifyShops []string) *SearchHub {
+	providers := []SearchProvider{NewAdafruitProvider(f)}
+	for _, shop := range shopifyShops {
+		if shop = strings.TrimSpace(shop); shop != "" {
+			providers = append(providers, NewShopifyProvider(f, shop))
+		}
+	}
+	return &SearchHub{providers: providers}
+}
+
+// Sources names what is being searched, for the UI.
+func (h *SearchHub) Sources() []string {
+	out := make([]string, 0, len(h.providers))
+	for _, p := range h.providers {
+		out = append(out, p.Name())
+	}
+	return out
 }
 
 // SearchReport carries results plus a note for each provider that failed, so
@@ -77,9 +94,22 @@ func (h *SearchHub) Search(ctx context.Context, query string, limit int) SearchR
 
 	var report SearchReport
 	for _, o := range out {
-		report.Results = append(report.Results, o.results...)
 		if o.note != "" {
 			report.Notes = append(report.Notes, o.note)
+		}
+	}
+	// Interleave by rank so one shop with a big catalogue cannot crowd the
+	// others out of the visible results.
+	for round := 0; ; round++ {
+		added := false
+		for _, o := range out {
+			if round < len(o.results) {
+				report.Results = append(report.Results, o.results[round])
+				added = true
+			}
+		}
+		if !added {
+			break
 		}
 	}
 	return report

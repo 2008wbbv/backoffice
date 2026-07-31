@@ -42,15 +42,15 @@
       <button class="btn" type="submit">Upload</button>
     </form>
 
-    <form class="url-photo" method="post" action="/items/{{$it.ID}}/photos/url">
-      <label class="field">
-        <span>…or pull one from the web</span>
+    <details class="tuck">
+      <summary>Pull a photo from the web</summary>
+      <form method="post" action="/items/{{$it.ID}}/photos/url">
         <div class="import-row">
           <input type="url" name="image_url" placeholder="Image or product page URL" required>
           <button class="btn" type="submit">Fetch</button>
         </div>
-      </label>
-    </form>
+      </form>
+    </details>
   </div>
 
   <div class="info">
@@ -132,6 +132,8 @@
       </ul>
       {{end}}
 
+      <details class="tuck">
+      <summary>Add or update a price</summary>
       <form class="price-add" method="post" action="/items/{{$it.ID}}/price">
         <input name="source" list="price-sources" placeholder="Shop" required>
         <datalist id="price-sources">
@@ -147,6 +149,7 @@
         <button class="btn tiny ghost" type="submit">Check price now</button>
         <span class="muted">searchable sources only</span>
       </form>
+      </details>
     </section>
 
     <section class="refs">
@@ -186,6 +189,8 @@
 
       {{if not $it.Refs}}<p class="muted">No datasheets or pinouts yet.</p>{{end}}
 
+      <details class="tuck">
+      <summary>Add a datasheet, pinout or manual</summary>
       <form class="price-add" method="post" action="/items/{{$it.ID}}/refs" enctype="multipart/form-data">
         <select name="kind" aria-label="Reference type">
           {{range $it.RefKinds}}<option value="{{.}}">{{.}}</option>{{end}}
@@ -195,6 +200,7 @@
         <input type="file" name="file" accept="image/*" aria-label="Upload a pinout image">
         <button class="btn" type="submit">Add reference</button>
       </form>
+      </details>
     </section>
 
     {{if $it.Specs}}
@@ -208,32 +214,30 @@
 
     {{if $it.Notes}}<div class="notes">{{$it.Notes}}</div>{{end}}
 
-    <form class="move" method="post" action="/items/{{$it.ID}}/move">
-      <label class="field">
-        <span>Move to folder</span>
-        <div class="import-row">
-          <select name="folder_id">
-            <option value="">— none —</option>
-            {{range $it.Folders}}
-              <option value="{{.ID}}"{{if $it.InFolder .ID}} selected{{end}}>{{.Indent}}{{.Name}}</option>
-            {{end}}
-          </select>
-          <button class="btn" type="submit">Move</button>
-        </div>
-      </label>
-    </form>
-
-    <section class="label-preview">
-      <h2>Label</h2>
+    <details class="tuck label-preview">
+      <summary>Label codes</summary>
       <div class="label-pair">
         <img src="/items/{{$it.ID}}/qr.png" alt="QR code for {{$it.Name}}" width="110" height="110">
         <img class="bc" src="/items/{{$it.ID}}/barcode.png" alt="Barcode for {{$it.Name}}" width="180" height="52">
       </div>
       <p class="muted">Scan the QR with a phone to open this page. <a href="/labels?q={{$it.Name}}">Print a sheet</a></p>
-    </section>
+    </details>
 
     <div class="actions">
-      <a class="btn" href="/items/{{$it.ID}}/edit">Edit</a>
+      <a class="btn primary" href="/items/{{$it.ID}}/edit">Edit</a>
+      <details class="inline-form">
+        <summary class="btn">Move</summary>
+        <form method="post" action="/items/{{$it.ID}}/move">
+          <select name="folder_id">
+            <option value="">— no folder —</option>
+            {{range $it.Folders}}
+              <option value="{{.ID}}"{{if $it.InFolder .ID}} selected{{end}}>{{.Indent}}{{.Name}}</option>
+            {{end}}
+          </select>
+          <button class="btn" type="submit">Move</button>
+        </form>
+      </details>
+      <a class="btn ghost" href="/labels?q={{$it.Name}}">Print label</a>
       <form method="post" action="/items/{{$it.ID}}/delete" data-confirm="Delete “{{$it.Name}}” and its photos?">
         <button class="btn danger" type="submit">Delete</button>
       </form>

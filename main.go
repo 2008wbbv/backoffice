@@ -27,8 +27,9 @@ type Config struct {
 	DataDir      string
 	Password     string
 	Title        string
-	BaseURL      string // public address, for the URLs printed into QR codes
-	AllowPrivate bool   // let URL imports reach LAN addresses
+	BaseURL      string   // public address, for the URLs printed into QR codes
+	ShopifyShops []string // storefronts to search, by hostname
+	AllowPrivate bool     // let URL imports reach LAN addresses
 }
 
 func configFromEnv() Config {
@@ -38,6 +39,15 @@ func configFromEnv() Config {
 		Password: os.Getenv("AUTH_PASSWORD"),
 		Title:    env("SITE_TITLE", "Backoffice"),
 		BaseURL:  os.Getenv("BASE_URL"),
+	}
+	c.ShopifyShops = defaultShopifyShops
+	if raw := strings.TrimSpace(os.Getenv("SHOPIFY_SHOPS")); raw != "" {
+		c.ShopifyShops = nil
+		for _, shop := range strings.Split(raw, ",") {
+			if shop = strings.TrimSpace(shop); shop != "" && shop != "none" {
+				c.ShopifyShops = append(c.ShopifyShops, shop)
+			}
+		}
 	}
 	switch strings.ToLower(os.Getenv("ALLOW_PRIVATE_FETCH")) {
 	case "1", "true", "yes":
@@ -96,7 +106,7 @@ func main() {
 		tmpl:    mustTemplates(),
 		auth:    auth,
 		fetcher: fetcher,
-		search:  NewSearchHub(fetcher),
+		search:  NewSearchHub(fetcher, cfg.ShopifyShops),
 	}
 
 	srv := &http.Server{
@@ -197,6 +207,10 @@ func (a *App) routes() http.Handler {
 	protected.HandleFunc("GET /labels", a.handleLabels)
 	protected.HandleFunc("GET /items/{id}/qr.png", a.handleItemQR)
 	protected.HandleFunc("GET /items/{id}/barcode.png", a.handleItemBarcode)
+
+	// One-step add from a pasted link, and type-ahead over the inventory.
+	protected.HandleFunc("POST /items/quick", a.handleQuickAdd)
+	protected.HandleFunc("GET /items/search.json", a.handleLiveSearch)
 
 	// Look a part up by name, or read a URL the person pasted.
 	protected.HandleFunc("POST /import/search", a.handleSearch)

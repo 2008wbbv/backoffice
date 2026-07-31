@@ -370,3 +370,125 @@ if (itemForm) {
     }
   });
 }
+
+// --- type-ahead over the inventory -------------------------------------------
+// Answers "do I already have one of these?" while you type. It searches your
+// own shelf, not the shops — the form's own search box does that.
+document.querySelectorAll('[data-live-search]').forEach((input) => {
+  const form = input.closest('form');
+  if (!form) return;
+
+  const panel = document.createElement('div');
+  panel.className = 'typeahead';
+  panel.hidden = true;
+  form.classList.add('has-typeahead');
+  form.append(panel);
+
+  let timer, controller, active = -1;
+
+  const close = () => { panel.hidden = true; active = -1; };
+
+  const render = (data, query) => {
+    panel.textContent = '';
+    if (!data.results.length) {
+      const empty = document.createElement('div');
+      empty.className = 'ta-empty';
+      empty.textContent = `Nothing in the inventory matches “${query}”.`;
+      panel.append(empty);
+      panel.hidden = false;
+      return;
+    }
+
+    data.results.forEach((r) => {
+      const a = document.createElement('a');
+      a.className = 'ta-row';
+      a.href = `/items/${r.id}`;
+
+      const img = document.createElement('span');
+      img.className = 'ta-img';
+      if (r.thumb) {
+        const el = document.createElement('img');
+        el.src = `/media/thumb/${r.thumb}`;
+        el.alt = '';
+        el.loading = 'lazy';
+        img.append(el);
+      } else {
+        img.textContent = (r.name || '?').slice(0, 1).toUpperCase();
+      }
+
+      const body = document.createElement('span');
+      body.className = 'ta-body';
+      const name = document.createElement('span');
+      name.className = 'ta-name';
+      name.textContent = r.name;
+      const meta = document.createElement('span');
+      meta.className = 'ta-meta';
+      meta.textContent = [r.location, r.folder, r.price].filter(Boolean).join(' · ');
+      body.append(name, meta);
+
+      const qty = document.createElement('span');
+      qty.className = 'ta-qty' + (r.quantity === 0 ? ' zero' : '');
+      qty.textContent = r.quantity;
+
+      a.append(img, body, qty);
+      panel.append(a);
+    });
+
+    if (data.total > data.results.length) {
+      const more = document.createElement('button');
+      more.type = 'submit';
+      more.className = 'ta-more';
+      more.textContent = `See all ${data.total} matches`;
+      panel.append(more);
+    }
+    panel.hidden = false;
+  };
+
+  const run = async () => {
+    const query = input.value.trim();
+    if (query.length < 2) { close(); return; }
+
+    // Abandon the previous request: with fast typing the answers can arrive
+    // out of order, and a stale one would overwrite the current query.
+    if (controller) controller.abort();
+    controller = new AbortController();
+
+    try {
+      const res = await fetch('/items/search.json?q=' + encodeURIComponent(query),
+        { signal: controller.signal, headers: { Accept: 'application/json' } });
+      if (!res.ok) throw new Error(res.statusText);
+      render(await res.json(), query);
+    } catch (err) {
+      if (err.name !== 'AbortError') close();
+    }
+  };
+
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(run, 140);
+  });
+  input.addEventListener('focus', () => { if (input.value.trim().length >= 2) run(); });
+
+  // Arrow keys walk the list; Enter opens the highlighted row, or submits.
+  input.addEventListener('keydown', (e) => {
+    const rows = [...panel.querySelectorAll('.ta-row')];
+    if (e.key === 'Escape') { close(); return; }
+    if (!rows.length || panel.hidden) return;
+
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      active += e.key === 'ArrowDown' ? 1 : -1;
+      if (active < 0) active = rows.length - 1;
+      if (active >= rows.length) active = 0;
+      rows.forEach((row, i) => row.classList.toggle('on', i === active));
+      rows[active].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter' && active >= 0) {
+      e.preventDefault();
+      rows[active].click();
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!form.contains(e.target)) close();
+  });
+});

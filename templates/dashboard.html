@@ -2,9 +2,25 @@
 {{template "top" .}}
 {{$d := .Data}}
 
-<form class="search" method="get" action="/items">
-  <input type="search" name="q" placeholder="Search everything — name, part number, tags, notes…" autocomplete="off">
+<form class="search live-search" method="get" action="/items">
+  <input type="search" name="q" placeholder="Search everything — name, part number, tags, notes…"
+         autocomplete="off" data-live-search>
   <button class="btn" type="submit">Search</button>
+</form>
+
+<!-- One box, one paste: fetch the page, make the item, keep the datasheet. -->
+<form class="quick-add" method="post" action="/items/quick">
+  <label class="field">
+    <span>Quick add <em>paste a product link — photo, price and datasheets come with it</em></span>
+    <div class="import-row">
+      <input type="url" name="url" placeholder="https://shop.example.com/some-board" required>
+      <select name="folder_id" aria-label="Folder">
+        <option value="">No folder</option>
+        {{range $d.Flat}}<option value="{{.ID}}">{{.Indent}}{{.Name}}</option>{{end}}
+      </select>
+      <button class="btn primary" type="submit">Add</button>
+    </div>
+  </label>
 </form>
 
 <div class="tiles">

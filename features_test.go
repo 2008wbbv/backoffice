@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"image"
 	_ "image/png"
@@ -1448,4 +1449,311 @@ func TestBaseURLPrefersConfigThenForwardedHeaders(t *testing.T) {
 	if got := app.BaseURL(r); got != "https://configured.example" {
 		t.Errorf("BaseURL = %q, want the configured value without a trailing slash", got)
 	}
+}
+
+// --- image and document discovery --------------------------------------------
+
+func TestImageDiscoveryFallsBackThroughConventions(t *testing.T) {
+	pages := map[string]string{
+		// OpenGraph is the best source and must win.
+		"/og": `<html><head>
+			<meta property="og:image" content="/og.jpg">
+			<link rel="image_src" href="/link.jpg">
+			</head><body><img src="/body.jpg" width="900" height="900"></body></html>`,
+		// No OpenGraph: fall through to <link rel="image_src">.
+		"/link": `<html><head><link rel="image_src" href="/link.jpg"></head>
+			<body><img src="/body.jpg" width="900" height="900"></body></html>`,
+		// Then schema.org.
+		"/jsonld": `<html><head>
+			<script type="application/ld+json">{"@type":"Product","image":["/ld.jpg"]}</script>
+			</head><body><img src="/body.jpg" width="900" height="900"></body></html>`,
+		// Last resort: the biggest picture on the page, skipping furniture.
+		"/body": `<html><head><title>Plain</title></head><body>
+			<img src="/logo.png" width="2000" height="2000">
+			<img src="/small.jpg" width="40" height="40">
+			<img src="/big.jpg" width="800" height="600">
+			</body></html>`,
+		// Protocol-relative and relative URLs both have to resolve.
+		"/relative": `<html><head><meta property="og:image" content="//cdn.example.com/x.jpg"></head></html>`,
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, ok := pages[r.URL.Path]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	f := NewFetcher(true)
+	cases := map[string]string{
+		"/og":       srv.URL + "/og.jpg",
+		"/link":     srv.URL + "/link.jpg",
+		"/jsonld":   srv.URL + "/ld.jpg",
+		"/body":     srv.URL + "/big.jpg",
+		"/relative": "http://cdn.example.com/x.jpg",
+	}
+	for path, want := range cases {
+		meta, err := f.FetchPage(context.Background(), srv.URL+path)
+		if err != nil {
+			t.Errorf("FetchPage(%s): %v", path, err)
+			continue
+		}
+		if meta.ImageURL != want {
+			t.Errorf("%s image = %q, want %q", path, meta.ImageURL, want)
+		}
+	}
+}
+
+func TestDocumentDiscoveryFindsDatasheetsNotNavigation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `<html><head><title>Board</title></head><body>
+			<a href="/files/esp32_datasheet.pdf">Datasheet</a>
+			<a href="/files/board_schematic.pdf">Schematic</a>
+			<a href="/img/pinout.png">Pinout diagram</a>
+			<a href="/category/datasheets">All datasheets</a>
+			<a href="/help">Manual returns policy</a>
+			<a href="/files/esp32_datasheet.pdf">Datasheet (again)</a>
+			</body></html>`)
+	}))
+	defer srv.Close()
+
+	meta, err := NewFetcher(true).FetchPage(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatalf("FetchPage: %v", err)
+	}
+
+	got := map[string]string{}
+	for _, d := range meta.Documents {
+		got[d.Kind] = d.URL
+	}
+	if len(meta.Documents) != 3 {
+		t.Fatalf("found %d documents, want 3 (duplicates and category pages excluded): %+v", len(meta.Documents), meta.Documents)
+	}
+	for kind, wantSuffix := range map[string]string{
+		"datasheet": "/files/esp32_datasheet.pdf",
+		"schematic": "/files/board_schematic.pdf",
+		"pinout":    "/img/pinout.png",
+	} {
+		if !strings.HasSuffix(got[kind], wantSuffix) {
+			t.Errorf("%s = %q, want it to end with %q", kind, got[kind], wantSuffix)
+		}
+	}
+	// "/category/datasheets" is a page, not a file, and must not be attached.
+	for _, d := range meta.Documents {
+		if strings.Contains(d.URL, "/category/") || strings.Contains(d.URL, "/help") {
+			t.Errorf("attached a navigation link: %+v", d)
+		}
+	}
+}
+
+// --- quick add ----------------------------------------------------------------
+
+func TestQuickAddBuildsAnItemFromOnePastedLink(t *testing.T) {
+	jpegBytes := testJPEG(t, 500, 400, 0)
+	shop := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".jpg") {
+			w.Header().Set("Content-Type", "image/jpeg")
+			w.Write(jpegBytes)
+			return
+		}
+		fmt.Fprint(w, `<html><head>
+			<meta property="og:title" content="ESP32 Feather Board">
+			<meta property="og:description" content="A small board.">
+			<meta property="og:image" content="/board.jpg">
+			<meta property="og:site_name" content="Adafruit">
+			<meta property="product:price:amount" content="19.95">
+			<meta property="product:price:currency" content="USD">
+			</head><body>
+			<a href="/files/esp32.pdf">Datasheet</a>
+			</body></html>`)
+	}))
+	defer shop.Close()
+
+	app := newTestApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	res, err := client.PostForm(srv.URL+"/items/quick", url.Values{"url": {shop.URL + "/product"}})
+	if err != nil {
+		t.Fatalf("POST /items/quick: %v", err)
+	}
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", res.StatusCode)
+	}
+	if q := res.Header.Get("Location"); strings.Contains(q, "error=") {
+		t.Fatalf("quick add reported an error: %s", q)
+	}
+
+	items, _ := app.store.ListItems(Query{})
+	if len(items) != 1 {
+		t.Fatalf("got %d items, want 1", len(items))
+	}
+	it, _ := app.store.GetItem(items[0].ID)
+
+	if it.Name != "ESP32 Feather Board" {
+		t.Errorf("name = %q", it.Name)
+	}
+	if len(it.Photos) != 1 {
+		t.Errorf("got %d photos, want the og:image downloaded", len(it.Photos))
+	}
+	best := it.Best()
+	if best == nil || best.Amount != 19.95 || best.Source != "Adafruit" {
+		t.Errorf("price = %+v, want 19.95 from Adafruit", best)
+	}
+	if best != nil && best.LeadDays != 5 {
+		t.Errorf("lead days = %d, want Adafruit's default", best.LeadDays)
+	}
+	if len(it.Docs()) != 1 || it.Docs()[0].Kind != "datasheet" {
+		t.Errorf("references = %+v, want the linked datasheet attached", it.Refs)
+	}
+}
+
+func TestQuickAddReportsABadLinkWithoutCreatingAnItem(t *testing.T) {
+	app := newTestApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	res, err := client.PostForm(srv.URL+"/items/quick", url.Values{"url": {"not a url"}})
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	if !strings.Contains(res.Header.Get("Location"), "error=") {
+		t.Error("a bad link was accepted silently")
+	}
+	if items, _ := app.store.ListItems(Query{}); len(items) != 0 {
+		t.Errorf("a half-built item was left behind: %+v", items)
+	}
+}
+
+// --- type-ahead ----------------------------------------------------------------
+
+func TestLiveSearchReturnsInventoryMatches(t *testing.T) {
+	app := newTestApp(t)
+	ids := seed(t, app.store,
+		Item{Name: "ESP32 devkit", Quantity: 5, Location: "Drawer 3"},
+		Item{Name: "ESP32-CAM", Quantity: 0},
+		Item{Name: "Resistor 10k", Quantity: 400},
+	)
+	app.store.SetPrice(ids[0], Price{Source: "Adafruit", Amount: 19.95})
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	client := &http.Client{}
+
+	body := getBody(t, client, srv.URL+"/items/search.json?q=esp32")
+	var payload struct {
+		Results []struct {
+			Name     string `json:"name"`
+			Location string `json:"location"`
+			Quantity int    `json:"quantity"`
+			Price    string `json:"price"`
+		} `json:"results"`
+		Total int `json:"total"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		t.Fatalf("response is not JSON: %v\n%s", err, body)
+	}
+	if payload.Total != 2 || len(payload.Results) != 2 {
+		t.Fatalf("got %d results (total %d), want the two ESP32s", len(payload.Results), payload.Total)
+	}
+	byName := map[string]int{}
+	for _, r := range payload.Results {
+		byName[r.Name] = r.Quantity
+	}
+	if _, ok := byName["Resistor 10k"]; ok {
+		t.Error("type-ahead returned a non-matching item")
+	}
+	if payload.Results[0].Price == "" && payload.Results[1].Price == "" {
+		t.Error("no result carried its price, which the dropdown shows")
+	}
+
+	// An empty query must not dump the whole inventory into the dropdown.
+	empty := getBody(t, client, srv.URL+"/items/search.json?q=")
+	if err := json.Unmarshal([]byte(empty), &payload); err != nil {
+		t.Fatalf("empty response is not JSON: %v", err)
+	}
+	if len(payload.Results) != 0 {
+		t.Errorf("an empty query returned %d results", len(payload.Results))
+	}
+}
+
+func TestShopifyProviderReadsSuggestions(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query().Get("q")
+		fmt.Fprint(w, `{"resources":{"results":{"products":[
+			{"title":"Pico 2","url":"/products/pico-2?_pos=1&_psq=pico","image":"//cdn.example/pico.jpg",
+			 "price":"5.30","vendor":"Raspberry Pi","available":true},
+			{"title":"Sold out board","url":"/products/gone","image":"","price":"9.00","available":false}
+		]}}}`)
+	}))
+	defer srv.Close()
+
+	p := NewShopifyProvider(NewFetcher(true), strings.TrimPrefix(srv.URL, "http://"))
+	p.scheme = "http"
+
+	got, err := p.Search(context.Background(), "pico", 5)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if gotQuery != "pico" {
+		t.Errorf("query sent = %q", gotQuery)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d results, want 2", len(got))
+	}
+	if got[0].Price != 5.30 {
+		t.Errorf("price = %v, want 5.30 parsed from the string", got[0].Price)
+	}
+	// Search-tracking parameters would be meaningless once saved.
+	if strings.Contains(got[0].URL, "_pos=") || !strings.HasSuffix(got[0].URL, "/products/pico-2") {
+		t.Errorf("url = %q, want it absolute and stripped of tracking", got[0].URL)
+	}
+	if got[0].ImageURL != "http://cdn.example/pico.jpg" {
+		t.Errorf("image = %q, want the protocol-relative URL resolved", got[0].ImageURL)
+	}
+	if got[0].Stock != "in stock" || got[1].Stock != "out of stock" {
+		t.Errorf("stock = %q / %q", got[0].Stock, got[1].Stock)
+	}
+}
+
+func TestSearchHubInterleavesShopsSoOneCannotCrowdOut(t *testing.T) {
+	make := func(name string, n int) SearchProvider { return &stubProvider{name: name, count: n} }
+	hub := &SearchHub{providers: []SearchProvider{make("Big", 5), make("Small", 2)}}
+
+	report := hub.Search(context.Background(), "esp32", 10)
+	if len(report.Results) != 7 {
+		t.Fatalf("got %d results, want all 7", len(report.Results))
+	}
+	// The first few must alternate rather than being five Bigs in a row.
+	if report.Results[0].Source != "Big" || report.Results[1].Source != "Small" ||
+		report.Results[2].Source != "Big" || report.Results[3].Source != "Small" {
+		var order []string
+		for _, r := range report.Results {
+			order = append(order, r.Source)
+		}
+		t.Errorf("order = %v, want the shops interleaved", order)
+	}
+}
+
+type stubProvider struct {
+	name  string
+	count int
+}
+
+func (s *stubProvider) Name() string { return s.name }
+func (s *stubProvider) Search(context.Context, string, int) ([]SearchResult, error) {
+	out := make([]SearchResult, s.count)
+	for i := range out {
+		out[i] = SearchResult{Source: s.name, Title: fmt.Sprintf("%s %d", s.name, i)}
+	}
+	return out, nil
 }

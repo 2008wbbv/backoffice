@@ -13,7 +13,9 @@
   <a class="brand" href="/">{{.SiteName}}</a>
   {{if not .Bare}}
   <nav>
+    <a href="/items" class="btn ghost">Items</a>
     <a href="/projects" class="btn ghost">Projects</a>
+    <a href="/labels" class="btn ghost">Labels</a>
     <a href="/items/new" class="btn primary">+ Add item</a>
     {{if .AuthOn}}<form method="post" action="/logout"><button class="btn ghost" type="submit">Sign out</button></form>{{end}}
   </nav>

@@ -4,8 +4,8 @@
 
 <p class="crumb"><a href="/">← Dashboard</a></p>
 
-<form class="search" method="get" action="/items">
-  <input type="search" name="q" value="{{$q.Search}}" placeholder="Search name, part number, tags, notes…" autocomplete="off" autofocus>
+<form class="search live-search" method="get" action="/items">
+  <input type="search" name="q" value="{{$q.Search}}" placeholder="Search name, part number, tags, notes…" autocomplete="off" autofocus data-live-search>
   {{if $q.Category}}<input type="hidden" name="category" value="{{$q.Category}}">{{end}}
   {{if $q.Location}}<input type="hidden" name="location" value="{{$q.Location}}">{{end}}
   {{if $q.Unfiled}}<input type="hidden" name="unfiled" value="1">{{end}}

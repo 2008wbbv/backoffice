@@ -49,6 +49,7 @@ Everything is optional. The defaults are the intended setup.
 | `AUTH_PASSWORD` | *(unset)* | If set, the whole app requires this password. If unset, no login at all. |
 | `SITE_TITLE` | `Backoffice` | Name in the header and browser tab. |
 | `BASE_URL` | *(request host)* | Public address printed into QR labels. Set this when behind a reverse proxy. |
+| `SHOPIFY_SHOPS` | `thepihut.com,shop.pimoroni.com` | Shopify storefronts to search, comma separated. `none` disables them. |
 | `ALLOW_PRIVATE_FETCH` | *(unset)* | Let "import from a link" reach LAN addresses. See below. |
 | `TZ` | `UTC` | Affects the "updated 3 hours ago" timestamps. |
 
@@ -91,8 +92,12 @@ Which shops can actually be searched from a server is not a matter of taste:
 | Source | Searchable from the server? |
 | --- | --- |
 | **Adafruit** | Yes. It publishes its whole catalogue as JSON, which is cached for six hours and searched locally, so only the first search waits. |
+| **Any Shopify shop** | Yes. Shopify ships a public search endpoint (`/search/suggest.json`) that every store built on it exposes — no key, no account. The Pi Hut and Pimoroni are searched by default; `SHOPIFY_SHOPS` points it at the shops you actually buy from. |
 | **Amazon** | No. Automated requests get a bot interstitial with no product data in it, and their terms direct you to the Product Advertising API, which needs an affiliate account. |
 | **AliExpress** | No. Server-side requests are bounced through redirects. |
+
+Results from several shops are **interleaved** rather than concatenated, so one
+shop with a big catalogue cannot crowd the others out of the visible list.
 
 So rather than pretend, the search results include **Search there yourself**
 links for Amazon, AliExpress and Octopart. Those open in your browser, where the
@@ -100,6 +105,10 @@ pages work normally — copy the URL back into the link importer, or just type t
 price in.
 
 #### Why not Amazon or AliExpress?
+
+The short version: **they are the two that refuse, and there are plenty that
+don't.** Adding Shopify covers a large slice of the maker world without an
+account anywhere. The long version follows.
 
 Not for lack of trying — here is what actually happens when a server asks.
 
@@ -137,9 +146,15 @@ You can also paste an image URL directly, on the form or on an existing item's
 page ("…or pull one from the web"). Give it a product page instead of an image and
 it will find that page's preview image.
 
-How well this works depends on the site: shops and wikis that emit OpenGraph tags
-fill in almost everything, while a bare PDF datasheet link gives you little. Sites
-that block non-browser traffic may refuse the request entirely.
+Image discovery falls through several conventions so it works on more than just
+well-behaved shops: OpenGraph first, then `twitter:image`, `<meta itemprop>`,
+`<link rel="image_src">`, schema.org JSON-LD, and finally the largest `<img>` on
+the page — skipping logos, icons and spacers. Relative and protocol-relative URLs
+are resolved against the page.
+
+How well the rest works depends on the site: shops and wikis that emit OpenGraph
+tags fill in almost everything, while a bare PDF datasheet link gives you little.
+Sites that block non-browser traffic may refuse the request entirely.
 
 **A note on what this does:** it makes your server fetch a URL you paste. Because
 the server usually sits inside your home network, it could otherwise be used to
@@ -183,6 +198,27 @@ a link or a stored image. A pinout given as a URL is *downloaded*, so it shows o
 the page and survives the source moving it; if the image can't be fetched the link
 is still kept, and the page says why it stayed a link.
 
+### Quick add
+
+The dashboard's **Quick add** box takes a product link and does the rest in one
+step: fetches the page, creates the item, downloads the photo, records the price
+with its shipping estimate, and attaches every datasheet, schematic and pinout
+the page links to. A SparkFun product page typically arrives with five
+references already attached.
+
+The full add form is still there and still better when a page guesses wrong —
+quick add is for "I just bought this, put it in the inventory".
+
+### Search as you type
+
+Every search box shows matches from your own inventory as you type, with a
+thumbnail, where it lives, the price and how many you have. It answers the
+question you usually have mid-typing — *do I already own one of these?* — without
+a page load. Arrow keys walk the list, Enter opens the highlighted row.
+
+Requests are cancelled as you keep typing, so a slow answer for "es" can never
+overwrite the results for "esp32".
+
 ### Prices
 
 Each item can carry one price per shop — Adafruit $19.95, AliExpress $4.20,
@@ -209,7 +245,8 @@ Note that **Value / rating** is a different field — it is the electrical value
 
 ### Labels: QR codes and barcodes
 
-**Labels** (the button on the grid, or `/labels`) prints a sheet for whatever the
+**Labels** is in the header on every page (or `/labels`, or the button on any
+grid). It prints a sheet for whatever the
 grid is currently showing — a folder, a location, a search. Two kinds:
 
 - **QR codes** carry the item's full URL. Point a phone camera at a drawer and its
@@ -294,6 +331,9 @@ Layout:
 | `handlers_import.go` | Import-from-URL endpoints |
 | `handlers_search.go` | Part search, prices and tag icons |
 | `handlers_projects.go` | Projects, references and price refresh |
+| `handlers_quick.go` | One-paste quick add and the type-ahead endpoint |
+| `search_shopify.go` | Shopify storefront search |
+| `labels.go` | QR / barcode generation and the print sheet |
 | `fetch.go` | Outbound fetching, SSRF guards, OpenGraph parsing |
 | `images.go` | Upload validation, thumbnails, EXIF orientation |
 | `auth.go` | Optional shared-password sessions |

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -162,6 +164,17 @@ type PageMeta struct {
 	Currency    string
 	PartNumber  string
 	URL         string
+
+	// Documents linked from the page that look like datasheets or manuals, so
+	// an import can attach them without anyone hunting for the PDF.
+	Documents []PageDocument
+}
+
+// PageDocument is a downloadable reference discovered on a product page.
+type PageDocument struct {
+	Title string
+	URL   string
+	Kind  string
 }
 
 // FetchPage downloads a page and reads its metadata. It prefers OpenGraph tags,
@@ -171,16 +184,17 @@ func (f *Fetcher) FetchPage(ctx context.Context, raw string) (*PageMeta, error) 
 	if err != nil {
 		return nil, err
 	}
-	body, finalURL, err := f.get(ctx, u.String(), "text/html,application/xhtml+xml", maxPageBytes)
+	raw2, finalURL, err := f.get(ctx, u.String(), "text/html,application/xhtml+xml", maxPageBytes)
 	if err != nil {
 		return nil, err
 	}
-	doc, err := html.Parse(strings.NewReader(string(body)))
+	doc, err := html.Parse(strings.NewReader(string(raw2)))
 	if err != nil {
 		return nil, fmt.Errorf("could not read that page")
 	}
 
 	meta, title := collectMeta(doc)
+	scan := scanBody(doc)
 	pm := &PageMeta{URL: finalURL}
 	pm.Title = firstOf(meta, "og:title", "twitter:title", "title")
 	if pm.Title == "" {
@@ -200,12 +214,40 @@ func (f *Fetcher) FetchPage(ctx context.Context, raw string) (*PageMeta, error) 
 		}
 	}
 
-	if img := firstOf(meta, "og:image:secure_url", "og:image", "twitter:image", "twitter:image:src"); img != "" {
-		base, err := url.Parse(finalURL)
-		if err == nil {
-			if abs, err := base.Parse(img); err == nil {
-				pm.ImageURL = abs.String()
-			}
+	// Image discovery, best source first. Shops that emit OpenGraph give a
+	// clean product shot; the rest need falling back through older conventions
+	// and finally the biggest picture actually on the page.
+	base, baseErr := url.Parse(finalURL)
+	absolute := func(ref string) string {
+		if ref == "" || baseErr != nil {
+			return ""
+		}
+		abs, err := base.Parse(strings.TrimSpace(ref))
+		if err != nil || (abs.Scheme != "http" && abs.Scheme != "https") {
+			return ""
+		}
+		return abs.String()
+	}
+
+	candidates := []string{
+		firstOf(meta, "og:image:secure_url", "og:image", "twitter:image", "twitter:image:src"),
+		meta["image"],     // <meta itemprop="image">
+		scan.LinkImageSrc, // <link rel="image_src">
+		scan.JSONLDImage,  // schema.org product data
+		scan.LargestImage, // last resort: the biggest <img> on the page
+	}
+	for _, c := range candidates {
+		if abs := absolute(c); abs != "" {
+			pm.ImageURL = abs
+			break
+		}
+	}
+
+	for _, d := range scan.Documents {
+		if abs := absolute(d.URL); abs != "" {
+			d.URL = abs
+			d.Title = tidy(d.Title, 90)
+			pm.Documents = append(pm.Documents, d)
 		}
 	}
 
@@ -364,4 +406,188 @@ func tidy(s string, max int) string {
 		s = strings.ToValidUTF8(s, "") + "…"
 	}
 	return s
+}
+
+// bodyScan is what the page's body offers once the <head> has been exhausted.
+type bodyScan struct {
+	LinkImageSrc string
+	JSONLDImage  string
+	LargestImage string
+	Documents    []PageDocument
+}
+
+// docPattern recognises the link text and file names that shops use for the
+// documents worth keeping: datasheets, pinouts, schematics and manuals.
+var docPattern = []struct{ match, kind string }{
+	{"datasheet", "datasheet"},
+	{"data sheet", "datasheet"},
+	{"pinout", "pinout"},
+	{"schematic", "schematic"},
+	{"manual", "manual"},
+	{"user guide", "manual"},
+	{"reference", "reference"},
+}
+
+// scanBody walks the whole document for the things the <head> did not provide:
+// fallback images, and links to documents worth attaching to the item.
+func scanBody(doc *html.Node) bodyScan {
+	var out bodyScan
+	bestArea := 0
+	seen := map[string]bool{}
+
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode {
+			switch n.Data {
+			case "link":
+				if attr(n, "rel") == "image_src" {
+					if out.LinkImageSrc == "" {
+						out.LinkImageSrc = attr(n, "href")
+					}
+				}
+			case "script":
+				if out.JSONLDImage == "" && strings.Contains(attr(n, "type"), "ld+json") && n.FirstChild != nil {
+					out.JSONLDImage = jsonLDImage(n.FirstChild.Data)
+				}
+			case "img":
+				// Width and height attributes are the only size information
+				// available without fetching every candidate.
+				w, h := atoiSafe(attr(n, "width")), atoiSafe(attr(n, "height"))
+				src := attr(n, "src")
+				if src == "" {
+					src = firstFromSrcset(attr(n, "srcset"))
+				}
+				if src != "" && !isDecorativeImage(src) && w*h > bestArea {
+					bestArea, out.LargestImage = w*h, src
+				}
+				// Keep something even when no dimensions are given.
+				if out.LargestImage == "" && src != "" && !isDecorativeImage(src) {
+					out.LargestImage = src
+				}
+			case "a":
+				href := attr(n, "href")
+				if href == "" || seen[href] {
+					break
+				}
+				text := strings.ToLower(textOf(n) + " " + href)
+				for _, p := range docPattern {
+					if strings.Contains(text, p.match) && looksLikeDocument(href) {
+						seen[href] = true
+						title := strings.TrimSpace(textOf(n))
+						if title == "" {
+							title = strings.Title(p.kind) //nolint:staticcheck // ASCII
+						}
+						out.Documents = append(out.Documents, PageDocument{
+							Title: title, URL: href, Kind: p.kind,
+						})
+						break
+					}
+				}
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(doc)
+
+	if len(out.Documents) > 6 {
+		out.Documents = out.Documents[:6]
+	}
+	return out
+}
+
+// looksLikeDocument keeps navigation links out of the reference list: a
+// datasheet is a file, not a category page.
+func looksLikeDocument(href string) bool {
+	clean := strings.ToLower(href)
+	if i := strings.IndexAny(clean, "?#"); i >= 0 {
+		clean = clean[:i]
+	}
+	for _, ext := range []string{".pdf", ".zip", ".doc", ".docx", ".png", ".jpg", ".svg"} {
+		if strings.HasSuffix(clean, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+// isDecorativeImage skips the furniture every shop page carries.
+func isDecorativeImage(src string) bool {
+	s := strings.ToLower(src)
+	for _, junk := range []string{"logo", "icon", "sprite", "avatar", "badge", "banner", "pixel", "spacer", ".gif"} {
+		if strings.Contains(s, junk) {
+			return true
+		}
+	}
+	return strings.HasPrefix(s, "data:")
+}
+
+// jsonLDImage pulls the first image out of a schema.org block without needing
+// to model the whole vocabulary.
+func jsonLDImage(raw string) string {
+	var any map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &any); err != nil {
+		return ""
+	}
+	img, ok := any["image"]
+	if !ok {
+		return ""
+	}
+	var single string
+	if err := json.Unmarshal(img, &single); err == nil {
+		return single
+	}
+	var list []string
+	if err := json.Unmarshal(img, &list); err == nil && len(list) > 0 {
+		return list[0]
+	}
+	var obj struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(img, &obj); err == nil {
+		return obj.URL
+	}
+	return ""
+}
+
+func firstFromSrcset(srcset string) string {
+	for _, part := range strings.Split(srcset, ",") {
+		if fields := strings.Fields(strings.TrimSpace(part)); len(fields) > 0 {
+			return fields[0]
+		}
+	}
+	return ""
+}
+
+func attr(n *html.Node, name string) string {
+	for _, a := range n.Attr {
+		if strings.EqualFold(a.Key, name) {
+			return a.Val
+		}
+	}
+	return ""
+}
+
+func textOf(n *html.Node) string {
+	var b strings.Builder
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.TextNode {
+			b.WriteString(n.Data)
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(n)
+	return strings.Join(strings.Fields(b.String()), " ")
+}
+
+func atoiSafe(s string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
 }
