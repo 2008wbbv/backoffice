@@ -298,6 +298,7 @@ func (a *App) handleRefreshPrice(w http.ResponseWriter, r *http.Request) {
 	err = a.store.SetPrice(id, Price{
 		Source: best.Source, Amount: best.Price,
 		Currency: best.Currency, URL: best.URL,
+		LeadDays: DefaultLeadDays(best.Source),
 	})
 	if err != nil {
 		a.fail(w, err, http.StatusInternalServerError)

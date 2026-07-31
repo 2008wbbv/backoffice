@@ -5,6 +5,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"image"
+	_ "image/png"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -1254,5 +1257,195 @@ func TestPinoutImageIsStoredOrExplainedNotSilentlyDowngraded(t *testing.T) {
 	}
 	if len(it.Docs()) != 1 || it.Docs()[0].Title != "Dead" {
 		t.Errorf("docs = %+v, want the dead link kept as a link", it.Docs())
+	}
+}
+
+// --- shipping lead times -----------------------------------------------------
+
+func TestCheapestAndFastestAreTrackedSeparately(t *testing.T) {
+	app := newTestApp(t)
+	id := seed(t, app.store, Item{Name: "ESP32", Quantity: 1})[0]
+
+	app.store.SetPrice(id, Price{Source: "AliExpress", Amount: 4.20, LeadDays: 30})
+	app.store.SetPrice(id, Price{Source: "Amazon", Amount: 12.99, LeadDays: 2})
+	app.store.SetPrice(id, Price{Source: "Adafruit", Amount: 19.95, LeadDays: 5})
+
+	it, _ := app.store.GetItem(id)
+	best, fastest := it.Best(), it.Fastest()
+	if best == nil || best.Source != "AliExpress" {
+		t.Errorf("cheapest = %+v, want AliExpress", best)
+	}
+	if fastest == nil || fastest.Source != "Amazon" {
+		t.Errorf("fastest = %+v, want Amazon", fastest)
+	}
+	if fastest.Lead() != "~2 days" {
+		t.Errorf("lead label = %q", fastest.Lead())
+	}
+
+	// A source with no known wait must not be treated as instant.
+	id2 := seed(t, app.store, Item{Name: "Mystery"})[0]
+	app.store.SetPrice(id2, Price{Source: "Market stall", Amount: 1})
+	it2, _ := app.store.GetItem(id2)
+	if it2.Fastest() != nil {
+		t.Error("a price with no lead time was reported as the fastest")
+	}
+	if it2.Prices[0].Lead() != "" {
+		t.Errorf("unknown lead rendered as %q, want blank", it2.Prices[0].Lead())
+	}
+}
+
+func TestDefaultLeadDaysFillsBlanksOnly(t *testing.T) {
+	if DefaultLeadDays("AliExpress") != 30 || DefaultLeadDays("amazon") != 2 {
+		t.Error("well-known shops should have a default wait")
+	}
+	if DefaultLeadDays("Some local shop") != 0 {
+		t.Error("an unknown shop should not get an invented lead time")
+	}
+
+	app := newTestApp(t)
+	id := seed(t, app.store, Item{Name: "Board"})[0]
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	// Blank falls back to the shop's usual wait.
+	client.PostForm(srv.URL+fmt.Sprintf("/items/%d/price", id),
+		url.Values{"source": {"AliExpress"}, "amount": {"4.20"}, "lead_days": {""}})
+	// An explicit figure wins over the default.
+	client.PostForm(srv.URL+fmt.Sprintf("/items/%d/price", id),
+		url.Values{"source": {"Amazon"}, "amount": {"12.99"}, "lead_days": {"9"}})
+
+	it, _ := app.store.GetItem(id)
+	got := map[string]int{}
+	for _, p := range it.Prices {
+		got[p.Source] = p.LeadDays
+	}
+	if got["AliExpress"] != 30 {
+		t.Errorf("AliExpress lead = %d, want the 30-day default", got["AliExpress"])
+	}
+	if got["Amazon"] != 9 {
+		t.Errorf("Amazon lead = %d, want the 9 that was typed", got["Amazon"])
+	}
+}
+
+// --- labels ------------------------------------------------------------------
+
+func TestQRAndBarcodeRenderAsPNG(t *testing.T) {
+	app := newTestApp(t)
+	id := seed(t, app.store, Item{Name: "ESP32 devkit", PartNumber: "ESP32-WROOM-32E"})[0]
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	for _, path := range []string{"qr.png", "barcode.png"} {
+		res, err := http.Get(srv.URL + fmt.Sprintf("/items/%d/%s", id, path))
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		body, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+
+		if res.StatusCode != http.StatusOK {
+			t.Errorf("%s = %d, want 200", path, res.StatusCode)
+			continue
+		}
+		if ct := res.Header.Get("Content-Type"); ct != "image/png" {
+			t.Errorf("%s content type = %q", path, ct)
+		}
+		cfg, format, err := image.DecodeConfig(bytes.NewReader(body))
+		if err != nil {
+			t.Errorf("%s is not a decodable image: %v", path, err)
+			continue
+		}
+		if format != "png" || cfg.Width < 100 {
+			t.Errorf("%s decoded as %s %dx%d", path, format, cfg.Width, cfg.Height)
+		}
+	}
+}
+
+func TestBarcodePayloadFallsBackWhenUnencodable(t *testing.T) {
+	cases := []struct {
+		item Item
+		want string
+	}{
+		{Item{ID: 7, PartNumber: "ESP32-WROOM-32E"}, "ESP32-WROOM-32E"},
+		{Item{ID: 7}, "BO-7"},                                       // no part number
+		{Item{ID: 7, PartNumber: "10kΩ 1%"}, "BO-7"},                // Code 128 is ASCII only
+		{Item{ID: 7, PartNumber: strings.Repeat("X", 200)}, "BO-7"}, // unreadably wide
+	}
+	for _, tc := range cases {
+		if got := barcodePayload(tc.item); got != tc.want {
+			t.Errorf("barcodePayload(%q) = %q, want %q", tc.item.PartNumber, got, tc.want)
+		}
+	}
+
+	// Whatever it picks must actually encode, or the label 500s.
+	app := newTestApp(t)
+	id := seed(t, app.store, Item{Name: "Ohm", PartNumber: "10kΩ 1%"})[0]
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	res, err := http.Get(srv.URL + fmt.Sprintf("/items/%d/barcode.png", id))
+	if err != nil {
+		t.Fatalf("GET barcode: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("a part number with a non-ASCII character produced %d", res.StatusCode)
+	}
+}
+
+func TestLabelSheetUsesGridFiltersAndBaseURL(t *testing.T) {
+	app := newTestApp(t)
+	app.cfg.BaseURL = "https://parts.example.lan"
+	seed(t, app.store,
+		Item{Name: "In drawer", Location: "Drawer 3"},
+		Item{Name: "Elsewhere", Location: "Shelf B"},
+	)
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	client := &http.Client{}
+
+	all := getBody(t, client, srv.URL+"/labels")
+	if !strings.Contains(all, "In drawer") || !strings.Contains(all, "Elsewhere") {
+		t.Error("the unfiltered sheet should cover everything")
+	}
+	if !strings.Contains(all, "parts.example.lan") {
+		t.Error("BASE_URL should be shown so the codes can be checked before printing")
+	}
+
+	scoped := getBody(t, client, srv.URL+"/labels?location=Drawer+3")
+	if !strings.Contains(scoped, "In drawer") || strings.Contains(scoped, "Elsewhere") {
+		t.Error("the sheet did not honour the grid's location filter")
+	}
+
+	barcodes := getBody(t, client, srv.URL+"/labels?code=barcode")
+	if !strings.Contains(barcodes, "barcode.png") {
+		t.Error("the barcode sheet still rendered QR codes")
+	}
+}
+
+func TestBaseURLPrefersConfigThenForwardedHeaders(t *testing.T) {
+	app := newTestApp(t)
+
+	r := httptest.NewRequest(http.MethodGet, "http://internal:8080/labels", nil)
+	if got := app.BaseURL(r); got != "http://internal:8080" {
+		t.Errorf("BaseURL = %q, want the request host", got)
+	}
+
+	// Behind a reverse proxy the server cannot see its own public name.
+	r.Header.Set("X-Forwarded-Proto", "https")
+	r.Header.Set("X-Forwarded-Host", "parts.example.com")
+	if got := app.BaseURL(r); got != "https://parts.example.com" {
+		t.Errorf("BaseURL = %q, want the forwarded host", got)
+	}
+
+	// An explicit setting beats both, and a trailing slash is not doubled.
+	app.cfg.BaseURL = "https://configured.example/"
+	if got := app.BaseURL(r); got != "https://configured.example" {
+		t.Errorf("BaseURL = %q, want the configured value without a trailing slash", got)
 	}
 }

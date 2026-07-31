@@ -96,6 +96,7 @@
     <a class="chip sm{{if or (eq $q.Sort "") (eq $q.Sort "recent")}} on{{end}}" href="{{query $q "sort" "recent"}}">Recent</a>
     <a class="chip sm{{if eq $q.Sort "name"}} on{{end}}" href="{{query $q "sort" "name"}}">A–Z</a>
     <a class="chip sm{{if eq $q.Sort "low"}} on{{end}}" href="{{query $q "sort" "low"}}">Low stock</a>
+    <a class="chip sm" href="{{$q.LabelsURL "qr"}}">Labels</a>
     <a class="chip sm" href="/export.csv">CSV</a>
   </span>
 </div>

@@ -72,7 +72,41 @@ type Price struct {
 	Amount    float64
 	Currency  string
 	URL       string
+	LeadDays  int // typical wait for delivery; 0 means nobody has said
 	UpdatedAt time.Time
+}
+
+// Lead renders the shipping wait for display.
+func (p Price) Lead() string {
+	switch {
+	case p.LeadDays <= 0:
+		return ""
+	case p.LeadDays == 1:
+		return "~1 day"
+	default:
+		return fmt.Sprintf("~%d days", p.LeadDays)
+	}
+}
+
+// DefaultLeadDays is the usual wait for shops people actually order from. It is
+// only a starting guess -- the figure is editable per price, because it depends
+// on where you live as much as on the shop.
+func DefaultLeadDays(source string) int {
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case "amazon":
+		return 2
+	case "adafruit", "sparkfun", "pimoroni", "the pi hut", "thepihut":
+		return 5
+	case "digi-key", "digikey", "mouser", "farnell", "rs":
+		return 3
+	case "ebay":
+		return 10
+	case "lcsc", "jlcpcb":
+		return 12
+	case "aliexpress", "banggood", "alibaba":
+		return 30
+	}
+	return 0
 }
 
 func (p Price) Display() string { return formatMoney(p.Amount, p.Currency) }
@@ -99,6 +133,23 @@ func (i Item) Best() *Price {
 		}
 	}
 	return best
+}
+
+// Fastest is the recorded price that arrives soonest, or nil when no source
+// has a known lead time. Cheapest and fastest are rarely the same shop, which
+// is the whole point of tracking both.
+func (i Item) Fastest() *Price {
+	var fastest *Price
+	for idx := range i.Prices {
+		p := &i.Prices[idx]
+		if p.LeadDays <= 0 {
+			continue
+		}
+		if fastest == nil || p.LeadDays < fastest.LeadDays {
+			fastest = p
+		}
+	}
+	return fastest
 }
 
 // LineValue is the cheapest price multiplied by how many are in stock.
@@ -462,7 +513,7 @@ func (s *Store) attachTags(items []Item, byID map[int64]int) error {
 
 // attachPrices loads every item's recorded prices in one query.
 func (s *Store) attachPrices(items []Item, byID map[int64]int) error {
-	rows, err := s.db.Query(`SELECT item_id, source, amount, currency, url, updated_at
+	rows, err := s.db.Query(`SELECT item_id, source, amount, currency, url, lead_days, updated_at
 		FROM prices ORDER BY amount`)
 	if err != nil {
 		return err
@@ -472,7 +523,7 @@ func (s *Store) attachPrices(items []Item, byID map[int64]int) error {
 		var itemID int64
 		var p Price
 		var updated string
-		if err := rows.Scan(&itemID, &p.Source, &p.Amount, &p.Currency, &p.URL, &updated); err != nil {
+		if err := rows.Scan(&itemID, &p.Source, &p.Amount, &p.Currency, &p.URL, &p.LeadDays, &updated); err != nil {
 			return err
 		}
 		p.UpdatedAt, _ = time.Parse(time.RFC3339, updated)
@@ -1011,12 +1062,13 @@ func (s *Store) SetPrice(itemID int64, p Price) error {
 		return err
 	}
 
-	_, err = tx.Exec(`INSERT INTO prices (item_id, source, amount, currency, url, updated_at)
-		VALUES (?,?,?,?,?,?)
+	_, err = tx.Exec(`INSERT INTO prices (item_id, source, amount, currency, url, lead_days, updated_at)
+		VALUES (?,?,?,?,?,?,?)
 		ON CONFLICT(item_id, source) DO UPDATE SET
 			amount = excluded.amount, currency = excluded.currency,
-			url = excluded.url, updated_at = excluded.updated_at`,
-		itemID, p.Source, p.Amount, p.Currency, p.URL, now)
+			url = excluded.url, lead_days = excluded.lead_days,
+			updated_at = excluded.updated_at`,
+		itemID, p.Source, p.Amount, p.Currency, p.URL, p.LeadDays, now)
 	if err != nil {
 		return err
 	}

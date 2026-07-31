@@ -366,6 +366,7 @@ func (a *App) savePriceFromForm(r *http.Request, itemID int64) {
 		Amount:   amount,
 		Currency: strings.ToUpper(orDefault(r.FormValue("currency"), "USD")),
 		URL:      strings.TrimSpace(r.FormValue("link")),
+		LeadDays: DefaultLeadDays(source),
 	}); err != nil {
 		log.Printf("save price: %v", err)
 	}

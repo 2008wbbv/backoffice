@@ -264,6 +264,40 @@ CREATE TABLE project_parts (
 CREATE INDEX idx_project_parts ON project_parts(project_id);
 `,
 	},
+	{
+		name: "shipping lead times",
+		// 0 means "unknown", which is different from "arrives today".
+		sql: `ALTER TABLE prices ADD COLUMN lead_days INTEGER NOT NULL DEFAULT 0;`,
+		// Seed the sources already recorded with the usual wait, so the column
+		// is useful immediately instead of a wall of blanks.
+		fn: func(tx *sql.Tx) error {
+			rows, err := tx.Query(`SELECT DISTINCT source FROM prices`)
+			if err != nil {
+				return err
+			}
+			var sources []string
+			for rows.Next() {
+				var s string
+				if err := rows.Scan(&s); err != nil {
+					rows.Close()
+					return err
+				}
+				sources = append(sources, s)
+			}
+			rows.Close()
+			if err := rows.Err(); err != nil {
+				return err
+			}
+			for _, src := range sources {
+				if days := DefaultLeadDays(src); days > 0 {
+					if _, err := tx.Exec(`UPDATE prices SET lead_days = ? WHERE source = ?`, days, src); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		},
+	},
 }
 
 func migrate(db *sql.DB) error {

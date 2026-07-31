@@ -48,6 +48,7 @@ Everything is optional. The defaults are the intended setup.
 | `DATA_DIR` | `./data` | Where the database and photos live. |
 | `AUTH_PASSWORD` | *(unset)* | If set, the whole app requires this password. If unset, no login at all. |
 | `SITE_TITLE` | `Backoffice` | Name in the header and browser tab. |
+| `BASE_URL` | *(request host)* | Public address printed into QR labels. Set this when behind a reverse proxy. |
 | `ALLOW_PRIVATE_FETCH` | *(unset)* | Let "import from a link" reach LAN addresses. See below. |
 | `TZ` | `UTC` | Affects the "updated 3 hours ago" timestamps. |
 
@@ -97,6 +98,35 @@ So rather than pretend, the search results include **Search there yourself**
 links for Amazon, AliExpress and Octopart. Those open in your browser, where the
 pages work normally — copy the URL back into the link importer, or just type the
 price in.
+
+#### Why not Amazon or AliExpress?
+
+Not for lack of trying — here is what actually happens when a server asks.
+
+**Amazon** returns HTTP 200 to a search request and to product pages, which looks
+promising until you read the body: a search for "esp32" came back as 285 KB
+containing **zero** product results, and a product page came back as 410 KB with
+no `og:` tags, no `productTitle`, and no price markup at all. It is an
+interstitial dressed as a page. That is deliberate — their terms of service
+direct automated access to the Product Advertising API, which requires an
+Associates (affiliate) account with qualifying sales. If you have those
+credentials, a provider for it is roughly a day's work and slots into the same
+`SearchProvider` interface as Adafruit; the blocker is the account, not the code.
+
+**AliExpress** bounces server-side requests through redirects — `aliexpress.com`
+→ `aliexpress.us` → back again — and never serves the product page. They also
+have an affiliate/open-platform API behind an approved account.
+
+**A general web search** as a fallback does not help either: DuckDuckGo's HTML
+endpoint answers with an anti-bot challenge (HTTP 202, no results). Bing and
+Brave both work well but need an API key.
+
+The honest summary: **every route to Amazon and AliExpress runs through an
+account you have to apply for.** Scraping them would produce something that
+silently returns nothing and rots the first time they change a template, which
+is worse than not having it. What is here instead — deep links out, plus the link
+importer and manual price entry for when you come back with a URL — costs you two
+clicks and never lies about what it knows.
 
 **Import from a link** takes a product page, datasheet or wiki URL and reads its
 OpenGraph metadata: name, description, price, part number and a photo. Nothing is
@@ -162,6 +192,12 @@ automatically; the rest you add on the item page.
 The cheapest price shows as a badge on the item's card, and the dashboard totals
 the shelf: every item's cheapest price multiplied by how many you have.
 
+**Shipping times** are recorded per shop alongside the price, because the cheapest
+source is rarely the fastest one. Well-known shops get a sensible default when you
+leave the field blank (AliExpress 30 days, Amazon 2, Adafruit 5) and anything you
+type wins. The item page calls it out when they differ: *"Cheapest is AliExpress;
+Amazon arrives soonest (~2 days)."*
+
 **Price tracking** records every change. Re-saving the same figure is not recorded
 — only movements — so the item page can show "Adafruit: $19.95 → $22.00 over 3
 checks". **Check price now** re-looks-up a part in the sources that can be
@@ -170,6 +206,27 @@ part number.
 
 Note that **Value / rating** is a different field — it is the electrical value
 ("10kΩ 1% 0805"), not money.
+
+### Labels: QR codes and barcodes
+
+**Labels** (the button on the grid, or `/labels`) prints a sheet for whatever the
+grid is currently showing — a folder, a location, a search. Two kinds:
+
+- **QR codes** carry the item's full URL. Point a phone camera at a drawer and its
+  page opens; no app, no scanner, nothing to install. This is the one that makes
+  the inventory usable *at the bench* rather than at a desk.
+- **Code 128 barcodes** carry the part number, falling back to `BO-<id>` when there
+  isn't one, or when the part number has non-ASCII characters or is too long to
+  print legibly. A USB barcode scanner behaves like a keyboard, so these type
+  straight into the search box.
+
+The QR codes point at whatever `BASE_URL` says, falling back to the address the
+request arrived on. Behind a reverse proxy the server cannot see its own public
+name, so set `BASE_URL` — the labels page shows you which address it is baking in
+before you print anything.
+
+Print styling is built in: the page chrome disappears, the sheet becomes a
+three-column grid on white, and labels never break across pages.
 
 ### Everything else
 

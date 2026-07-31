@@ -528,3 +528,45 @@ body.drag-target::after {
   display: flex; align-items: center; justify-content: center;
   font-size: 17px; font-weight: 600; color: var(--text);
 }
+
+/* --- printable labels -------------------------------------------------------- */
+
+.sheet {
+  display: grid; gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+}
+.label {
+  display: flex; align-items: center; gap: 10px;
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px; background: var(--panel);
+  break-inside: avoid;
+}
+.label .code { width: 74px; height: 74px; object-fit: contain; flex: none; background: #fff; border-radius: 4px; }
+.label-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; font-size: 12px; }
+.label-text b { font-size: 12.5px; font-weight: 620; line-height: 1.2; }
+.label-text span, .label-text code { color: var(--muted); font-size: 11px; }
+
+/* Barcodes are wide and short, so give them the full width of the label. */
+.sheet:has(.code[src*="barcode"]) { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.label .code[src*="barcode"] { width: 116px; height: 46px; }
+
+@media print {
+  .noprint, .topbar, .toast { display: none !important; }
+  main { padding: 0; max-width: none; }
+  body { background: #fff; color: #000; }
+  .sheet { grid-template-columns: repeat(3, 1fr); gap: 4mm; }
+  .label { border: 1px solid #999; background: #fff; page-break-inside: avoid; }
+  .label-text b { color: #000; }
+  .label-text span, .label-text code { color: #333; }
+  @page { margin: 10mm; }
+}
+
+.prices .lead {
+  font-size: 11.5px; color: var(--muted);
+  padding: 1px 6px; border-radius: 999px; background: var(--panel-2);
+}
+.label-preview { margin-bottom: 18px; }
+.label-preview h2 { font-size: 14px; font-weight: 600; margin: 0 0 8px; }
+.label-pair { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.label-pair img { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 4px; }
+.label-preview p { font-size: 12.5px; margin: 0; }

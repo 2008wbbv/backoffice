@@ -1,0 +1,57 @@
+{{define "labels.html"}}
+{{template "top" .}}
+{{$d := .Data}}
+
+<div class="noprint">
+  <p class="crumb"><a href="/items">← All items</a></p>
+  <div class="folder-head">
+    <h1>Labels</h1>
+    <div class="folder-actions">
+      <a class="chip sm{{if eq $d.Code "qr"}} on{{end}}" href="{{$d.Query.LabelsURL "qr"}}">QR</a>
+      <a class="chip sm{{if eq $d.Code "barcode"}} on{{end}}" href="{{$d.Query.LabelsURL "barcode"}}">Barcode</a>
+      <button class="btn primary" type="button" onclick="window.print()">Print</button>
+    </div>
+  </div>
+  <p class="muted page-sub">
+    Printing {{$d.Scope}}.
+    {{if eq $d.Code "qr"}}
+      Each code opens that item on a phone — point the camera at it, no app needed.
+      They point at <code>{{$d.BaseURL}}</code>; set <code>BASE_URL</code> if that is not
+      the address your phone can reach.
+    {{else}}
+      Code 128 barcodes carry the part number, or <code>BO-&lt;id&gt;</code> when there
+      isn't one. A USB scanner types them like a keyboard, so they work in the search box.
+    {{end}}
+  </p>
+
+  <form class="search" method="get" action="/labels">
+    <input type="hidden" name="code" value="{{$d.Code}}">
+    <input type="search" name="q" value="{{$d.Query.Search}}" placeholder="Narrow the sheet — same search as the grid…">
+    <select name="folder">
+      <option value="">Every folder</option>
+      {{range $d.Folders}}<option value="{{.ID}}">{{.Indent}}{{.Name}}</option>{{end}}
+    </select>
+    <button class="btn" type="submit">Apply</button>
+  </form>
+</div>
+
+{{if $d.Items}}
+<div class="sheet">
+  {{range $d.Items}}
+  <div class="label">
+    <img class="code" src="/items/{{.ID}}/{{if eq $d.Code "qr"}}qr.png{{else}}barcode.png{{end}}" alt="">
+    <div class="label-text">
+      <b>{{.Name}}</b>
+      {{if .Location}}<span>{{.Location}}</span>{{end}}
+      {{if .PartNumber}}<code>{{.PartNumber}}</code>{{end}}
+      {{if .Value}}<span>{{.Value}}</span>{{end}}
+    </div>
+  </div>
+  {{end}}
+</div>
+{{else}}
+<div class="empty small noprint"><p><strong>Nothing to print.</strong></p></div>
+{{end}}
+
+{{template "bottom" .}}
+{{end}}

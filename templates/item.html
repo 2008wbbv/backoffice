@@ -99,6 +99,7 @@
         <li>
           <span class="src">{{.Source}}</span>
           <span class="amt">{{.Display}}</span>
+          {{with .Lead}}<span class="lead">{{.}}</span>{{end}}
           {{if .URL}}<a class="muted" href="{{.URL}}" target="_blank" rel="noreferrer noopener">link</a>{{end}}
           <span class="muted when">{{since .UpdatedAt}}</span>
           <form method="post" action="/items/{{$it.ID}}/price/delete">
@@ -110,6 +111,11 @@
       </ul>
       {{if gt $it.Quantity 0}}
       <p class="muted line-value">{{$it.Quantity}} in stock · {{money $it.LineValue}} at the cheapest price</p>
+      {{end}}
+      {{with $it.Fastest}}
+        {{if ne .Source $it.Best.Source}}
+        <p class="muted line-value">Cheapest is {{$it.Best.Source}}; {{.Source}} arrives soonest ({{.Lead}}).</p>
+        {{end}}
       {{end}}
       {{else}}
       <p class="muted">No prices recorded yet.</p>
@@ -133,6 +139,7 @@
           <option value="Mouser"><option value="Digi-Key"><option value="LCSC"><option value="eBay">
         </datalist>
         <input name="amount" inputmode="decimal" placeholder="19.95" required>
+        <input name="lead_days" inputmode="numeric" placeholder="ship days" aria-label="Shipping days">
         <input name="url" type="url" placeholder="link (optional)">
         <button class="btn" type="submit">Save price</button>
       </form>
@@ -215,6 +222,15 @@
         </div>
       </label>
     </form>
+
+    <section class="label-preview">
+      <h2>Label</h2>
+      <div class="label-pair">
+        <img src="/items/{{$it.ID}}/qr.png" alt="QR code for {{$it.Name}}" width="110" height="110">
+        <img class="bc" src="/items/{{$it.ID}}/barcode.png" alt="Barcode for {{$it.Name}}" width="180" height="52">
+      </div>
+      <p class="muted">Scan the QR with a phone to open this page. <a href="/labels?q={{$it.Name}}">Print a sheet</a></p>
+    </section>
 
     <div class="actions">
       <a class="btn" href="/items/{{$it.ID}}/edit">Edit</a>

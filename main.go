@@ -27,7 +27,8 @@ type Config struct {
 	DataDir      string
 	Password     string
 	Title        string
-	AllowPrivate bool // let URL imports reach LAN addresses
+	BaseURL      string // public address, for the URLs printed into QR codes
+	AllowPrivate bool   // let URL imports reach LAN addresses
 }
 
 func configFromEnv() Config {
@@ -36,6 +37,7 @@ func configFromEnv() Config {
 		DataDir:  env("DATA_DIR", "./data"),
 		Password: os.Getenv("AUTH_PASSWORD"),
 		Title:    env("SITE_TITLE", "Backoffice"),
+		BaseURL:  os.Getenv("BASE_URL"),
 	}
 	switch strings.ToLower(os.Getenv("ALLOW_PRIVATE_FETCH")) {
 	case "1", "true", "yes":
@@ -190,6 +192,11 @@ func (a *App) routes() http.Handler {
 	protected.HandleFunc("POST /items/{id}/refs", a.handleAddReference)
 	protected.HandleFunc("POST /refs/{id}/delete", a.handleDeleteReference)
 	protected.HandleFunc("POST /items/{id}/price/refresh", a.handleRefreshPrice)
+
+	// Labels: a QR code opens the item on a phone, a barcode feeds a scanner.
+	protected.HandleFunc("GET /labels", a.handleLabels)
+	protected.HandleFunc("GET /items/{id}/qr.png", a.handleItemQR)
+	protected.HandleFunc("GET /items/{id}/barcode.png", a.handleItemBarcode)
 
 	// Look a part up by name, or read a URL the person pasted.
 	protected.HandleFunc("POST /import/search", a.handleSearch)

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -59,11 +60,22 @@ func (a *App) handleSetPrice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A blank shipping time falls back to what that shop usually takes, so the
+	// common case needs no typing; anything entered wins.
+	lead, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("lead_days")))
+	if strings.TrimSpace(r.FormValue("lead_days")) == "" {
+		lead = DefaultLeadDays(source)
+	}
+	if lead < 0 {
+		lead = 0
+	}
+
 	err = a.store.SetPrice(id, Price{
 		Source:   source,
 		Amount:   amount,
 		Currency: strings.ToUpper(strings.TrimSpace(orDefault(r.FormValue("currency"), "USD"))),
 		URL:      strings.TrimSpace(r.FormValue("url")),
+		LeadDays: lead,
 	})
 	if err != nil {
 		a.fail(w, err, http.StatusInternalServerError)
