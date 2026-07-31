@@ -32,6 +32,31 @@ type Item struct {
 	Tags       []Tag
 	Photos     []Photo
 	Prices     []Price
+	Interfaces []string
+	Specs      []Spec
+	Refs       []Reference
+}
+
+// Pinouts are the references worth showing as pictures on the item page.
+func (i Item) Pinouts() []Reference {
+	var out []Reference
+	for _, r := range i.Refs {
+		if r.IsImage() {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// Docs are the reference links, as opposed to stored images.
+func (i Item) Docs() []Reference {
+	var out []Reference
+	for _, r := range i.Refs {
+		if !r.IsImage() {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // Tag is a label plus the icon shown with it.
@@ -179,19 +204,20 @@ func scanItem(s interface{ Scan(...any) error }) (Item, error) {
 
 // Query describes the filter state of the item grid. Every field is optional.
 type Query struct {
-	Search    string
-	Category  string
-	Location  string
-	Tags      []string // an item must carry all of these
-	FolderID  *int64   // limit to one folder (with Recursive, its subtree too)
-	Unfiled   bool     // only items in no folder
-	Recursive bool
-	Sort      string // "recent" (default), "name", "qty", "low"
+	Search     string
+	Category   string
+	Location   string
+	Tags       []string // an item must carry all of these
+	Interfaces []string // and speak all of these
+	FolderID   *int64   // limit to one folder (with Recursive, its subtree too)
+	Unfiled    bool     // only items in no folder
+	Recursive  bool
+	Sort       string // "recent" (default), "name", "qty", "low"
 }
 
 func (q Query) Any() bool {
 	return q.Search != "" || q.Category != "" || q.Location != "" ||
-		len(q.Tags) > 0 || q.FolderID != nil || q.Unfiled
+		len(q.Tags) > 0 || len(q.Interfaces) > 0 || q.FolderID != nil || q.Unfiled
 }
 
 // values renders the query as URL parameters. Folder scope is carried in the
@@ -215,6 +241,9 @@ func (q Query) values() url.Values {
 	}
 	for _, t := range q.Tags {
 		v.Add("tag", t)
+	}
+	for _, i := range q.Interfaces {
+		v.Add("io", i)
 	}
 	return v
 }
@@ -254,18 +283,28 @@ func (q Query) URL(key, value string) string {
 
 // WithTagToggled adds a tag to the filter, or drops it if already applied.
 func (q Query) WithTagToggled(tag string) string {
+	return q.toggleMulti("tag", q.Tags, tag)
+}
+
+// WithInterfaceToggled does the same for the IO filter row.
+func (q Query) WithInterfaceToggled(name string) string {
+	return q.toggleMulti("io", q.Interfaces, name)
+}
+
+// toggleMulti rebuilds a repeated query parameter with one value flipped.
+func (q Query) toggleMulti(key string, current []string, value string) string {
 	v := q.values()
-	v.Del("tag")
+	v.Del(key)
 	found := false
-	for _, t := range q.Tags {
-		if strings.EqualFold(t, tag) {
+	for _, existing := range current {
+		if strings.EqualFold(existing, value) {
 			found = true
 			continue
 		}
-		v.Add("tag", t)
+		v.Add(key, existing)
 	}
 	if !found {
-		v.Add("tag", tag)
+		v.Add(key, value)
 	}
 	if len(v) == 0 {
 		return q.Path()
@@ -307,6 +346,12 @@ func (s *Store) ListItems(q Query) ([]Item, error) {
 		where = append(where, `EXISTS (SELECT 1 FROM item_tags it JOIN tags t ON t.id = it.tag_id
 			WHERE it.item_id = i.id AND t.name = ?)`)
 		args = append(args, tag)
+	}
+	// Each interface gets its own EXISTS so several of them narrow the list.
+	for _, io := range q.Interfaces {
+		where = append(where, `EXISTS (SELECT 1 FROM item_interfaces ii
+			WHERE ii.item_id = i.id AND ii.name = ?)`)
+		args = append(args, io)
 	}
 	switch {
 	case q.Unfiled:
@@ -364,10 +409,14 @@ func (s *Store) ListItems(q Query) ([]Item, error) {
 	if err := s.attachPhotos(items, byID); err != nil {
 		return nil, err
 	}
-	if err := s.attachTags(items, byID); err != nil {
-		return nil, err
+	for _, attach := range []func([]Item, map[int64]int) error{
+		s.attachTags, s.attachPrices, s.attachInterfaces,
+	} {
+		if err := attach(items, byID); err != nil {
+			return nil, err
+		}
 	}
-	return items, s.attachPrices(items, byID)
+	return items, nil
 }
 
 // attachPhotos and attachTags each cost one query for the whole page, rather
@@ -446,11 +495,15 @@ func (s *Store) GetItem(id int64) (Item, error) {
 	if err := s.attachPhotos(items, byID); err != nil {
 		return it, err
 	}
-	if err := s.attachTags(items, byID); err != nil {
-		return it, err
-	}
-	if err := s.attachPrices(items, byID); err != nil {
-		return it, err
+	// The detail page is the only place specs and references are shown, so
+	// they are loaded here rather than on every grid render.
+	for _, attach := range []func([]Item, map[int64]int) error{
+		s.attachTags, s.attachPrices, s.attachInterfaces,
+		s.attachSpecs, s.attachRefs,
+	} {
+		if err := attach(items, byID); err != nil {
+			return it, err
+		}
 	}
 	return items[0], nil
 }
@@ -479,6 +532,12 @@ func (s *Store) CreateItem(it Item) (int64, error) {
 	if err := setTagsTx(tx, id, it.Tags); err != nil {
 		return 0, err
 	}
+	if err := setInterfacesTx(tx, id, it.Interfaces); err != nil {
+		return 0, err
+	}
+	if err := setSpecsTx(tx, id, it.Specs); err != nil {
+		return 0, err
+	}
 	return id, tx.Commit()
 }
 
@@ -500,6 +559,12 @@ func (s *Store) UpdateItem(it Item) error {
 		return err
 	}
 	if err := setTagsTx(tx, it.ID, it.Tags); err != nil {
+		return err
+	}
+	if err := setInterfacesTx(tx, it.ID, it.Interfaces); err != nil {
+		return err
+	}
+	if err := setSpecsTx(tx, it.ID, it.Specs); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -928,14 +993,41 @@ func (s *Store) SetPrice(itemID int64, p Price) error {
 	if p.Currency == "" {
 		p.Currency = "USD"
 	}
-	_, err := s.db.Exec(`INSERT INTO prices (item_id, source, amount, currency, url, updated_at)
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Only record history when the figure actually moved, so re-saving the
+	// same price does not fill the chart with duplicates.
+	var previous float64
+	err = tx.QueryRow(`SELECT amount FROM prices WHERE item_id = ? AND source = ?`,
+		itemID, p.Source).Scan(&previous)
+	changed := err == sql.ErrNoRows || (err == nil && previous != p.Amount)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+
+	_, err = tx.Exec(`INSERT INTO prices (item_id, source, amount, currency, url, updated_at)
 		VALUES (?,?,?,?,?,?)
 		ON CONFLICT(item_id, source) DO UPDATE SET
 			amount = excluded.amount, currency = excluded.currency,
 			url = excluded.url, updated_at = excluded.updated_at`,
-		itemID, p.Source, p.Amount, p.Currency, p.URL,
-		time.Now().UTC().Format(time.RFC3339))
-	return err
+		itemID, p.Source, p.Amount, p.Currency, p.URL, now)
+	if err != nil {
+		return err
+	}
+	if changed {
+		_, err = tx.Exec(`INSERT INTO price_history (item_id, source, amount, currency, seen_at)
+			VALUES (?,?,?,?,?)`, itemID, p.Source, p.Amount, p.Currency, now)
+		if err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Store) DeletePrice(itemID int64, source string) error {

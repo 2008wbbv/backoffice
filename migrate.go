@@ -183,6 +183,87 @@ CREATE TABLE prices (
 );
 `,
 	},
+	{
+		name: "interfaces, specs and references",
+		sql: `
+-- What a part speaks and needs: I2C, SPI, 3V3 logic, USB-C, and so on. A
+-- controlled vocabulary rather than free tags, so a project can reason about it.
+CREATE TABLE item_interfaces (
+	item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+	name    TEXT    NOT NULL,
+	PRIMARY KEY (item_id, name)
+);
+CREATE INDEX idx_item_interfaces_name ON item_interfaces(name);
+
+-- Free-form key/value specifications: "Logic level = 3.3V", "Flash = 8MB".
+CREATE TABLE specs (
+	item_id  INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+	name     TEXT    NOT NULL,
+	value    TEXT    NOT NULL,
+	position INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (item_id, name)
+);
+
+-- Datasheets, pinout diagrams, manuals. A reference is a link, an stored
+-- image, or both -- a pinout is only useful if you can actually look at it.
+CREATE TABLE refs (
+	id       INTEGER PRIMARY KEY AUTOINCREMENT,
+	item_id  INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+	kind     TEXT    NOT NULL DEFAULT 'reference',
+	title    TEXT    NOT NULL,
+	url      TEXT    NOT NULL DEFAULT '',
+	filename TEXT    NOT NULL DEFAULT '',
+	position INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_refs_item ON refs(item_id, position);
+`,
+	},
+	{
+		name: "price history",
+		sql: `
+CREATE TABLE price_history (
+	id       INTEGER PRIMARY KEY AUTOINCREMENT,
+	item_id  INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+	source   TEXT    NOT NULL,
+	amount   REAL    NOT NULL,
+	currency TEXT    NOT NULL DEFAULT 'USD',
+	seen_at  TEXT    NOT NULL
+);
+CREATE INDEX idx_price_history ON price_history(item_id, source, seen_at);
+`,
+		// Seed history from the prices already recorded, so the first chart is
+		// not empty for anyone upgrading.
+		fn: func(tx *sql.Tx) error {
+			_, err := tx.Exec(`INSERT INTO price_history (item_id, source, amount, currency, seen_at)
+				SELECT item_id, source, amount, currency, updated_at FROM prices`)
+			return err
+		},
+	},
+	{
+		name: "projects",
+		sql: `
+CREATE TABLE projects (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	name       TEXT    NOT NULL,
+	notes      TEXT    NOT NULL DEFAULT '',
+	status     TEXT    NOT NULL DEFAULT 'planning',
+	created_at TEXT    NOT NULL,
+	updated_at TEXT    NOT NULL
+);
+
+-- A line is either a part you own (item_id) or one you do not yet (name only),
+-- which is what lets the shortfall list say "buy this".
+CREATE TABLE project_parts (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+	item_id    INTEGER REFERENCES items(id) ON DELETE SET NULL,
+	name       TEXT    NOT NULL DEFAULT '',
+	quantity   INTEGER NOT NULL DEFAULT 1,
+	note       TEXT    NOT NULL DEFAULT ''
+);
+CREATE INDEX idx_project_parts ON project_parts(project_id);
+`,
+	},
 }
 
 func migrate(db *sql.DB) error {

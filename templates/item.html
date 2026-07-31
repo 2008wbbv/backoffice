@@ -79,6 +79,12 @@
       <dt>Updated</dt><dd>{{since $it.UpdatedAt}}</dd>
     </dl>
 
+    {{if $it.Interfaces}}
+    <div class="tags io-row">
+      {{range $it.Interfaces}}<a class="chip sm io" href="/items?io={{.}}"><span class="ti">{{ioIcon .}}</span>{{.}}</a>{{end}}
+    </div>
+    {{end}}
+
     {{if $it.Tags}}
     <div class="tags">
       {{range $it.Tags}}<a class="chip sm" href="/items?tag={{.Name}}">{{if .Icon}}<span class="ti">{{.Icon}}</span>{{end}}{{.Name}}</a>{{end}}
@@ -109,6 +115,17 @@
       <p class="muted">No prices recorded yet.</p>
       {{end}}
 
+      {{if $it.Changes}}
+      <ul class="changes">
+        {{range $it.Changes}}
+        <li class="dir-{{.Direction}}">
+          {{.Source}}: {{money .First}} → {{money .Latest}}
+          <span class="muted">over {{.Points}} checks</span>
+        </li>
+        {{end}}
+      </ul>
+      {{end}}
+
       <form class="price-add" method="post" action="/items/{{$it.ID}}/price">
         <input name="source" list="price-sources" placeholder="Shop" required>
         <datalist id="price-sources">
@@ -119,7 +136,68 @@
         <input name="url" type="url" placeholder="link (optional)">
         <button class="btn" type="submit">Save price</button>
       </form>
+      <form method="post" action="/items/{{$it.ID}}/price/refresh" class="refresh">
+        <button class="btn tiny ghost" type="submit">Check price now</button>
+        <span class="muted">searchable sources only</span>
+      </form>
     </section>
+
+    <section class="refs">
+      <h2>Datasheets &amp; pinouts</h2>
+      {{if $it.Pinouts}}
+      <div class="pinouts">
+        {{range $it.Pinouts}}
+        <figure>
+          <a href="/media/{{.Filename}}" target="_blank" rel="noreferrer noopener">
+            <img src="/media/thumb/{{.Filename}}" alt="{{.Title}}" loading="lazy">
+          </a>
+          <figcaption>
+            <span>{{.Title}}</span>
+            <form method="post" action="/refs/{{.ID}}/delete">
+              <button class="btn tiny danger" type="submit" aria-label="Remove {{.Title}}">×</button>
+            </form>
+          </figcaption>
+        </figure>
+        {{end}}
+      </div>
+      {{end}}
+
+      {{if $it.Docs}}
+      <ul class="doclist">
+        {{range $it.Docs}}
+        <li>
+          <span class="kind">{{.Kind}}</span>
+          {{if .URL}}<a href="{{.URL}}" target="_blank" rel="noreferrer noopener">{{.Title}}</a>
+          {{else}}<span>{{.Title}}</span>{{end}}
+          <form method="post" action="/refs/{{.ID}}/delete">
+            <button class="btn tiny danger" type="submit" aria-label="Remove {{.Title}}">×</button>
+          </form>
+        </li>
+        {{end}}
+      </ul>
+      {{end}}
+
+      {{if not $it.Refs}}<p class="muted">No datasheets or pinouts yet.</p>{{end}}
+
+      <form class="price-add" method="post" action="/items/{{$it.ID}}/refs" enctype="multipart/form-data">
+        <select name="kind" aria-label="Reference type">
+          {{range $it.RefKinds}}<option value="{{.}}">{{.}}</option>{{end}}
+        </select>
+        <input name="title" placeholder="Title">
+        <input name="url" type="url" placeholder="Link (a pinout image is downloaded)">
+        <input type="file" name="file" accept="image/*" aria-label="Upload a pinout image">
+        <button class="btn" type="submit">Add reference</button>
+      </form>
+    </section>
+
+    {{if $it.Specs}}
+    <section class="specs">
+      <h2>Specifications</h2>
+      <dl class="facts">
+        {{range $it.Specs}}<dt>{{.Name}}</dt><dd>{{.Value}}</dd>{{end}}
+      </dl>
+    </section>
+    {{end}}
 
     {{if $it.Notes}}<div class="notes">{{$it.Notes}}</div>{{end}}
 

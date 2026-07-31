@@ -120,6 +120,39 @@ rather than the hostname. If you want to import from something on your own netwo
 (a LAN wiki, a local parts server), set `ALLOW_PRIVATE_FETCH=1` — but only do that
 if you trust everyone who can reach the app.
 
+### Projects
+
+A project is a parts list for something you're building. Add lines for parts you
+own and parts you don't, say how many each needs, and the project page answers
+the question you actually have: **what am I still missing?**
+
+- **What you still need** lists every line the shelf cannot cover, with how many
+  short you are, and an estimated cost from the cheapest known price.
+- **You already own these** suggests parts from your own inventory that speak the
+  same interfaces as what's already on the list — a nudge toward the level
+  shifter you forgot you had, not a shopping recommendation.
+- Stock changes are picked up live: restock a part and its line clears itself.
+
+### IO and interfaces
+
+Each item records what it speaks and needs — I2C, SPI, 1-Wire, 3V3 logic, USB-C,
+WiFi, and so on — from a fixed vocabulary rather than free text, so a project can
+actually reason about it. Anything outside the list is discarded rather than
+stored, which keeps the filter row free of typos.
+
+Interfaces show as icons on cards, filter like tags (picking two narrows), and
+drive the project suggestions.
+
+### Specifications, datasheets and pinouts
+
+**Specifications** are free-form `name: value` lines — "Logic level: 3.3V",
+"Flash: 8MB" — typed one per line and shown as a table.
+
+**References** are datasheets, pinouts, manuals and schematics. A reference can be
+a link or a stored image. A pinout given as a URL is *downloaded*, so it shows on
+the page and survives the source moving it; if the image can't be fetched the link
+is still kept, and the page says why it stayed a link.
+
 ### Prices
 
 Each item can carry one price per shop — Adafruit $19.95, AliExpress $4.20,
@@ -128,6 +161,12 @@ automatically; the rest you add on the item page.
 
 The cheapest price shows as a badge on the item's card, and the dashboard totals
 the shelf: every item's cheapest price multiplied by how many you have.
+
+**Price tracking** records every change. Re-saving the same figure is not recorded
+— only movements — so the item page can show "Adafruit: $19.95 → $22.00 over 3
+checks". **Check price now** re-looks-up a part in the sources that can be
+searched, and refuses to overwrite anything when the closest match is a different
+part number.
 
 Note that **Value / rating** is a different field — it is the electrical value
 ("10kΩ 1% 0805"), not money.
@@ -148,6 +187,8 @@ Note that **Value / rating** is a different field — it is the electrical value
   on a phone. Thumbnails are generated automatically and rotated to match the
   photo's EXIF orientation, so portrait phone shots aren't sideways. Hover a
   thumbnail for ★ (make cover) and × (delete).
+- **Drag and drop** — drag a product link from another tab onto the add form and
+  it imports; drag an image file and it goes into the photo picker.
 - **Keyboard** — `/` focuses search, `n` opens the add form.
 - **CSV** — the `CSV` button exports the full inventory, folders and tags included.
 
@@ -189,11 +230,13 @@ Layout:
 | `db.go` | Item/folder/tag/price queries and the filter model |
 | `search.go` | Part search providers and the Adafruit catalogue |
 | `tags.go` | Tag icon defaults |
+| `parts.go` | Interfaces, specs, references, price history, projects |
 | `migrate.go` | Schema migrations, applied on startup |
 | `handlers.go` | Item and grid handlers |
 | `handlers_folders.go` | Dashboard and folder handlers |
 | `handlers_import.go` | Import-from-URL endpoints |
 | `handlers_search.go` | Part search, prices and tag icons |
+| `handlers_projects.go` | Projects, references and price refresh |
 | `fetch.go` | Outbound fetching, SSRF guards, OpenGraph parsing |
 | `images.go` | Upload validation, thumbnails, EXIF orientation |
 | `auth.go` | Optional shared-password sessions |

@@ -1,0 +1,115 @@
+{{define "project.html"}}
+{{template "top" .}}
+{{$d := .Data}}{{$p := $d.Project}}
+
+<nav class="crumb"><a href="/">Dashboard</a><span class="sep">/</span><a href="/projects">Projects</a>
+  <span class="sep">/</span><span class="here">{{$p.Name}}</span></nav>
+
+<div class="folder-head">
+  <h1>{{$p.Name}}</h1>
+  <div class="folder-actions">
+    <details class="inline-form">
+      <summary class="btn">Settings</summary>
+      <form method="post" action="/projects/{{$p.ID}}">
+        <input name="name" value="{{$p.Name}}" required>
+        <input name="notes" value="{{$p.Notes}}" placeholder="Notes">
+        <select name="status">
+          {{range $s := slice "planning" "building" "done" "shelved"}}
+          <option value="{{$s}}"{{if eq $p.Status $s}} selected{{end}}>{{$s}}</option>
+          {{end}}
+        </select>
+        <button class="btn" type="submit">Save</button>
+      </form>
+      <form method="post" action="/projects/{{$p.ID}}/delete" data-confirm="Delete the project “{{$p.Name}}”? Your parts are not touched.">
+        <button class="btn danger" type="submit">Delete project</button>
+      </form>
+    </details>
+  </div>
+</div>
+
+{{if $p.Notes}}<p class="muted page-sub">{{$p.Notes}}</p>{{end}}
+
+<div class="tiles">
+  <div class="tile"><b>{{len $p.Parts}}</b><span>parts listed</span></div>
+  <div class="tile"><b{{if $p.Shortfall}} class="warn"{{end}}>{{len $p.Shortfall}}</b><span>still needed</span></div>
+  {{if $p.EstimatedCost}}<div class="tile"><b>{{money $p.EstimatedCost}}</b><span>to buy (est.)</span></div>{{end}}
+  <div class="tile"><b>{{$p.Status}}</b><span>status</span></div>
+</div>
+
+{{if $p.Shortfall}}
+<section class="panel-block">
+  <div class="section-head"><h2>What you still need</h2></div>
+  <ul class="rows">
+    {{range $p.Shortfall}}
+    <li>
+      <span class="row-item">
+        <span class="short-badge">{{.Short}}</span>
+        <span class="row-name">{{.Label}}</span>
+        <span class="muted">have {{.Have}} of {{.Quantity}}</span>
+      </span>
+      {{if .Item}}
+        <a class="chip sm" href="/items/{{.Item.ID}}">Open</a>
+      {{else}}
+        <a class="chip sm" href="/items/new?name={{.Label}}">Add to inventory</a>
+      {{end}}
+    </li>
+    {{end}}
+  </ul>
+</section>
+{{else if $p.Parts}}
+<div class="toast ok">Everything on this list is on the shelf.</div>
+{{end}}
+
+<section class="panel-block">
+  <div class="section-head"><h2>Parts list</h2></div>
+  {{if $p.Parts}}
+  <ul class="rows">
+    {{range $p.Parts}}
+    <li>
+      <span class="row-item">
+        {{if .Item}}
+          {{if .Item.Thumb}}<img src="/media/thumb/{{.Item.Thumb}}" alt="" loading="lazy">
+          {{else}}<span class="noimg tiny">{{initials .Label}}</span>{{end}}
+          <a class="row-name" href="/items/{{.Item.ID}}">{{.Label}}</a>
+        {{else}}
+          <span class="noimg tiny">?</span>
+          <span class="row-name">{{.Label}} <span class="muted">(not in inventory)</span></span>
+        {{end}}
+        {{if .Note}}<span class="muted">{{.Note}}</span>{{end}}
+      </span>
+      <span class="row-qty{{if not .Enough}} zero{{end}}">{{.Have}} / {{.Quantity}}</span>
+      <form method="post" action="/project-parts/{{.ID}}/delete">
+        <button class="btn tiny danger" type="submit" aria-label="Remove {{.Label}}">×</button>
+      </form>
+    </li>
+    {{end}}
+  </ul>
+  {{else}}
+  <p class="muted">Nothing listed yet.</p>
+  {{end}}
+
+  <form class="price-add" method="post" action="/projects/{{$p.ID}}/parts">
+    <select name="item_id">
+      <option value="">— a part you own —</option>
+      {{range $d.AllItems}}<option value="{{.ID}}">{{.Name}} ({{.Quantity}} in stock)</option>{{end}}
+    </select>
+    <input name="name" placeholder="…or something you don't own yet">
+    <input name="quantity" type="number" min="1" value="1" aria-label="Quantity needed">
+    <button class="btn" type="submit">Add part</button>
+  </form>
+</section>
+
+{{if $d.Suggestions}}
+<section class="panel-block">
+  <div class="section-head">
+    <h2>You already own these</h2>
+    <span class="muted">they speak {{range $i, $io := $p.Interfaces}}{{if $i}}, {{end}}{{$io}}{{end}}</span>
+  </div>
+  <ul class="grid">
+    {{range $d.Suggestions}}{{template "itemCard" .}}{{end}}
+  </ul>
+</section>
+{{end}}
+
+{{template "bottom" .}}
+{{end}}

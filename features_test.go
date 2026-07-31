@@ -937,3 +937,322 @@ func TestIconForTagIsStable(t *testing.T) {
 		t.Error("an empty tag should get no icon")
 	}
 }
+
+// --- interfaces, specs and references ---------------------------------------
+
+func TestInterfacesAreVocabularyControlledAndFilterable(t *testing.T) {
+	app := newTestApp(t)
+	seed(t, app.store,
+		Item{Name: "OLED", Quantity: 1, Interfaces: []string{"I2C", "3V3 logic"}},
+		Item{Name: "SD breakout", Quantity: 1, Interfaces: []string{"SPI", "3V3 logic"}},
+		Item{Name: "Resistor", Quantity: 1},
+	)
+
+	one, _ := app.store.ListItems(Query{Interfaces: []string{"3V3 logic"}})
+	if len(one) != 2 {
+		t.Errorf("one interface matched %d items, want 2", len(one))
+	}
+	both, _ := app.store.ListItems(Query{Interfaces: []string{"I2C", "3V3 logic"}})
+	if len(both) != 1 || both[0].Name != "OLED" {
+		t.Errorf("two interfaces matched %+v, want just the OLED", both)
+	}
+
+	// Anything outside the vocabulary is dropped rather than stored, so the
+	// filter row cannot fill up with typos.
+	id := seed(t, app.store, Item{Name: "Odd", Interfaces: []string{"I2C", "Telepathy"}})[0]
+	it, _ := app.store.GetItem(id)
+	if len(it.Interfaces) != 1 || it.Interfaces[0] != "I2C" {
+		t.Errorf("interfaces = %v, want the invalid one discarded", it.Interfaces)
+	}
+
+	facets, err := app.store.InterfaceFacets()
+	if err != nil {
+		t.Fatalf("InterfaceFacets: %v", err)
+	}
+	for _, f := range facets {
+		if f.Icon == "" {
+			t.Errorf("interface %q has no icon", f.Value)
+		}
+	}
+}
+
+func TestSpecsRoundTripThroughTheForm(t *testing.T) {
+	specs := ParseSpecs("Logic level: 3.3V\n\nFlash: 8MB\nNo colon line\nLogic level: duplicate\n")
+	if len(specs) != 3 {
+		t.Fatalf("parsed %d specs, want 3 (blank skipped, duplicate dropped): %+v", len(specs), specs)
+	}
+	if specs[0].Name != "Logic level" || specs[0].Value != "3.3V" {
+		t.Errorf("first spec = %+v", specs[0])
+	}
+	if specs[2].Name != "No colon line" || specs[2].Value != "" {
+		t.Errorf("a line without a colon should be kept as a bare name: %+v", specs[2])
+	}
+
+	app := newTestApp(t)
+	id := seed(t, app.store, Item{Name: "Board", Specs: specs})[0]
+	it, _ := app.store.GetItem(id)
+	if len(it.Specs) != 3 {
+		t.Fatalf("stored %d specs, want 3", len(it.Specs))
+	}
+	if !strings.HasPrefix(it.SpecText(), "Logic level: 3.3V\n") {
+		t.Errorf("SpecText did not round-trip:\n%s", it.SpecText())
+	}
+}
+
+func TestReferencesSeparateImagesFromLinks(t *testing.T) {
+	app := newTestApp(t)
+	id := seed(t, app.store, Item{Name: "ESP32"})[0]
+
+	app.store.AddReference(Reference{ItemID: id, Kind: "datasheet", Title: "Datasheet", URL: "https://example.com/d.pdf"})
+	app.store.AddReference(Reference{ItemID: id, Kind: "pinout", Title: "Pinout", Filename: "aaaaaaaaaaaaaaaa.jpg"})
+
+	it, _ := app.store.GetItem(id)
+	if len(it.Pinouts()) != 1 || it.Pinouts()[0].Title != "Pinout" {
+		t.Errorf("pinouts = %+v, want the stored image", it.Pinouts())
+	}
+	if len(it.Docs()) != 1 || it.Docs()[0].Title != "Datasheet" {
+		t.Errorf("docs = %+v, want the link", it.Docs())
+	}
+
+	itemID, filename, err := app.store.DeleteReference(it.Pinouts()[0].ID)
+	if err != nil {
+		t.Fatalf("DeleteReference: %v", err)
+	}
+	if itemID != id || filename != "aaaaaaaaaaaaaaaa.jpg" {
+		t.Errorf("delete reported item %d file %q; the file must come back so it can be unlinked", itemID, filename)
+	}
+}
+
+// --- price history ----------------------------------------------------------
+
+func TestPriceHistoryOnlyRecordsChanges(t *testing.T) {
+	app := newTestApp(t)
+	id := seed(t, app.store, Item{Name: "Board", Quantity: 1})[0]
+
+	for _, amount := range []float64{19.95, 19.95, 17.50, 17.50, 22.00} {
+		if err := app.store.SetPrice(id, Price{Source: "Adafruit", Amount: amount}); err != nil {
+			t.Fatalf("SetPrice(%v): %v", amount, err)
+		}
+	}
+	points, err := app.store.PriceHistory(id)
+	if err != nil {
+		t.Fatalf("PriceHistory: %v", err)
+	}
+	if len(points) != 3 {
+		t.Fatalf("recorded %d points, want 3 — repeats of the same price are not news", len(points))
+	}
+
+	changes := PriceChanges(points)
+	if len(changes) != 1 {
+		t.Fatalf("got %d changes, want 1 source", len(changes))
+	}
+	c := changes[0]
+	if c.First != 19.95 || c.Latest != 22.00 || c.Direction() != "up" {
+		t.Errorf("change = %+v, direction %q", c, c.Direction())
+	}
+}
+
+func TestPriceChangesIgnoresSingleObservations(t *testing.T) {
+	// One reading is not a trend and should not be drawn as one.
+	points := []PricePoint{{Source: "Amazon", Amount: 5}}
+	if got := PriceChanges(points); len(got) != 0 {
+		t.Errorf("got %+v, want nothing for a single observation", got)
+	}
+}
+
+// --- projects ---------------------------------------------------------------
+
+func TestProjectShortfallAndCost(t *testing.T) {
+	app := newTestApp(t)
+	esp := seed(t, app.store, Item{Name: "ESP32", Quantity: 1, Interfaces: []string{"I2C", "WiFi"}})[0]
+	oled := seed(t, app.store, Item{Name: "OLED", Quantity: 0, Interfaces: []string{"I2C"}})[0]
+	app.store.SetPrice(oled, Price{Source: "Adafruit", Amount: 9.95})
+
+	pid, err := app.store.CreateProject("Greenhouse", "monitors humidity")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	// Two ESP32s wanted but only one owned; two OLEDs wanted and none owned.
+	app.store.AddProjectPart(pid, &esp, "", 2, "")
+	app.store.AddProjectPart(pid, &oled, "", 2, "")
+	// And something not in the inventory at all.
+	app.store.AddProjectPart(pid, nil, "Enclosure", 1, "3D print")
+
+	p, err := app.store.GetProject(pid)
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+	if len(p.Parts) != 3 {
+		t.Fatalf("got %d parts, want 3", len(p.Parts))
+	}
+
+	short := p.Shortfall()
+	if len(short) != 3 {
+		t.Fatalf("shortfall = %d lines, want all three unmet: %+v", len(short), short)
+	}
+	byName := map[string]ProjectPart{}
+	for _, s := range short {
+		byName[s.Label()] = s
+	}
+	if got := byName["ESP32"].Short(); got != 1 {
+		t.Errorf("ESP32 short by %d, want 1 (own 1 of 2)", got)
+	}
+	if got := byName["Enclosure"].Have(); got != 0 {
+		t.Errorf("a part not in the inventory reported %d in stock", got)
+	}
+	if p.Ready() {
+		t.Error("project reported ready while parts are missing")
+	}
+	// Only the missing OLEDs have a known price: 2 x 9.95.
+	if got := p.EstimatedCost(); got != 2*9.95 {
+		t.Errorf("estimated cost = %v, want 19.90", got)
+	}
+
+	// Stocking up clears the line.
+	app.store.AdjustQuantity(esp, 5)
+	p, _ = app.store.GetProject(pid)
+	for _, s := range p.Shortfall() {
+		if s.Label() == "ESP32" {
+			t.Error("ESP32 still short after restocking")
+		}
+	}
+}
+
+func TestProjectSuggestsOwnedPartsSharingInterfaces(t *testing.T) {
+	app := newTestApp(t)
+	esp := seed(t, app.store, Item{Name: "ESP32", Quantity: 1, Interfaces: []string{"I2C", "WiFi"}})[0]
+	seed(t, app.store,
+		Item{Name: "BME280", Quantity: 2, Interfaces: []string{"I2C"}},                // shares I2C
+		Item{Name: "Level shifter", Quantity: 5, Interfaces: []string{"I2C", "WiFi"}}, // shares both
+		Item{Name: "Stepper motor", Quantity: 1, Interfaces: []string{"CAN"}},         // unrelated
+		Item{Name: "Out of stock sensor", Quantity: 0, Interfaces: []string{"I2C"}},
+	)
+
+	pid, _ := app.store.CreateProject("Weather", "")
+	app.store.AddProjectPart(pid, &esp, "", 1, "")
+	p, _ := app.store.GetProject(pid)
+
+	got, err := app.store.SuggestForProject(p, 10)
+	if err != nil {
+		t.Fatalf("SuggestForProject: %v", err)
+	}
+	names := make([]string, len(got))
+	for i, it := range got {
+		names[i] = it.Name
+	}
+	if len(got) != 2 {
+		t.Fatalf("suggested %v, want the two in-stock I2C parts", names)
+	}
+	// The part matching both interfaces should lead.
+	if names[0] != "Level shifter" {
+		t.Errorf("suggested %v; the closest interface match should come first", names)
+	}
+	for _, n := range names {
+		if n == "ESP32" {
+			t.Error("suggested a part already in the parts list")
+		}
+		if n == "Out of stock sensor" {
+			t.Error("suggested something with no stock")
+		}
+	}
+}
+
+func TestProjectPagesRender(t *testing.T) {
+	app := newTestApp(t)
+	id := seed(t, app.store, Item{Name: "ESP32", Quantity: 1, Interfaces: []string{"I2C"}})[0]
+	pid, _ := app.store.CreateProject("Greenhouse", "notes here")
+	app.store.AddProjectPart(pid, &id, "", 3, "")
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	client := &http.Client{}
+
+	list := getBody(t, client, srv.URL+"/projects")
+	if !strings.Contains(list, "Greenhouse") {
+		t.Error("project list does not show the project")
+	}
+
+	page := getBody(t, client, srv.URL+fmt.Sprintf("/projects/%d", pid))
+	for _, want := range []string{"Greenhouse", "ESP32", "What you still need"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("project page missing %q", want)
+		}
+	}
+
+	// The dashboard leads with recently updated items now.
+	dash := getBody(t, client, srv.URL+"/")
+	recent := strings.Index(dash, "Recently updated")
+	folders := strings.Index(dash, ">Folders<")
+	if recent < 0 || folders < 0 {
+		t.Fatalf("dashboard sections missing (recent=%d folders=%d)", recent, folders)
+	}
+	if recent > folders {
+		t.Error("Recently updated should come before Folders on the dashboard")
+	}
+}
+
+func TestNewItemFormPrefillsFromQuery(t *testing.T) {
+	// The project shortfall links here with a name, so a missing part can be
+	// added without retyping it.
+	app := newTestApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	body := getBody(t, &http.Client{}, srv.URL+"/items/new?name=Weatherproof+enclosure&location=Drawer+9")
+	if !strings.Contains(body, `value="Weatherproof enclosure"`) {
+		t.Error("the name from the query string was not prefilled")
+	}
+	if !strings.Contains(body, `value="Drawer 9"`) {
+		t.Error("the location from the query string was not prefilled")
+	}
+}
+
+func TestPinoutImageIsStoredOrExplainedNotSilentlyDowngraded(t *testing.T) {
+	jpegBytes := testJPEG(t, 400, 300, 0)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "good") {
+			w.Header().Set("Content-Type", "image/jpeg")
+			w.Write(jpegBytes)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	app := newTestApp(t)
+	id := seed(t, app.store, Item{Name: "ESP32"})[0]
+	appSrv := httptest.NewServer(app.routes())
+	defer appSrv.Close()
+
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	// A reachable image is downloaded so the pinout is visible on the page.
+	res, err := client.PostForm(appSrv.URL+fmt.Sprintf("/items/%d/refs", id),
+		url.Values{"kind": {"pinout"}, "title": {"Good"}, "url": {srv.URL + "/good.jpg"}})
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	if strings.Contains(res.Header.Get("Location"), "error=") {
+		t.Fatalf("storing a reachable pinout reported an error: %s", res.Header.Get("Location"))
+	}
+
+	// A dead link is still kept, but the response explains why it is a link.
+	res, err = client.PostForm(appSrv.URL+fmt.Sprintf("/items/%d/refs", id),
+		url.Values{"kind": {"pinout"}, "title": {"Dead"}, "url": {srv.URL + "/missing.jpg"}})
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	if !strings.Contains(res.Header.Get("Location"), "error=") {
+		t.Error("a pinout whose image could not be fetched was downgraded silently")
+	}
+
+	it, _ := app.store.GetItem(id)
+	if len(it.Pinouts()) != 1 || it.Pinouts()[0].Title != "Good" {
+		t.Errorf("pinouts = %+v, want only the one that downloaded", it.Pinouts())
+	}
+	if len(it.Docs()) != 1 || it.Docs()[0].Title != "Dead" {
+		t.Errorf("docs = %+v, want the dead link kept as a link", it.Docs())
+	}
+}

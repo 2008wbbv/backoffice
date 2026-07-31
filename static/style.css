@@ -442,3 +442,89 @@ a.tile:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
 }
 .tag-admin .tag-name { color: var(--text); font-weight: 540; }
 .tag-admin .muted { margin-left: auto; font-size: 12.5px; }
+
+/* --- IO / interfaces --------------------------------------------------------- */
+
+.chip.io { border-style: solid; }
+.io-row { margin-bottom: 8px; }
+.card-io { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 2px; }
+.io-pill {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 5px; font-size: 11px;
+  background: var(--panel-2); border: 1px solid var(--line);
+}
+
+.io-picker { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.io-picker legend { font-size: 13px; color: var(--muted); padding: 0 5px; }
+.io-picker legend em { font-style: normal; opacity: .7; }
+.io-group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 7px; }
+.io-opt { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.io-opt input { position: absolute; opacity: 0; width: 0; height: 0; }
+.io-opt span {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 9px; border-radius: 999px; font-size: 12.5px;
+  background: var(--panel); border: 1px solid var(--line); color: var(--text);
+}
+.io-opt input:checked + span { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.io-opt input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* --- specs, references, price history ---------------------------------------- */
+
+.specs { margin-bottom: 16px; }
+.specs h2, .refs h2 { font-size: 14px; font-weight: 600; margin: 0 0 8px; }
+.refs { margin-bottom: 18px; }
+
+.pinouts { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); margin-bottom: 10px; }
+.pinouts figure { margin: 0; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; background: var(--panel); }
+.pinouts img { width: 100%; display: block; background: var(--panel-2); }
+.pinouts figcaption {
+  display: flex; align-items: center; gap: 6px; justify-content: space-between;
+  padding: 5px 6px 5px 9px; font-size: 12.5px;
+}
+.pinouts figcaption form { margin: 0; }
+
+.doclist { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.doclist li {
+  display: flex; align-items: center; gap: 9px; font-size: 13.5px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 5px 6px 5px 11px;
+}
+.doclist .kind {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--muted); min-width: 68px;
+}
+.doclist form { margin: 0; margin-left: auto; }
+
+.changes { list-style: none; margin: 0 0 10px; padding: 0; font-size: 13px; }
+.changes li { padding: 3px 0; }
+.changes .muted { font-size: 12px; }
+.dir-up::before { content: "▲ "; color: var(--danger); }
+.dir-down::before { content: "▼ "; color: var(--ok); }
+.refresh { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12.5px; }
+
+/* --- projects ---------------------------------------------------------------- */
+
+.short-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 26px; height: 22px; padding: 0 6px; border-radius: 6px;
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--line));
+  color: var(--danger); font-weight: 650; font-size: 12.5px;
+}
+.rows li form { margin: 0; }
+.price-add select {
+  padding: 7px 10px; font: inherit; font-size: 13.5px;
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--line); border-radius: 8px; max-width: 260px;
+}
+.price-add input[type=file] { font-size: 12.5px; color: var(--muted); }
+
+/* Drag a link or image anywhere on the add form to import it. */
+body.drag-target::after {
+  content: "Drop a link or image to import";
+  position: fixed; inset: 12px; z-index: 60; pointer-events: none;
+  border: 2px dashed var(--accent); border-radius: 16px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 17px; font-weight: 600; color: var(--text);
+}

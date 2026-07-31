@@ -16,6 +16,11 @@
     {{if .Value}}<div class="val">{{.Value}}</div>{{end}}
     {{if .Location}}<div class="loc">{{.Location}}</div>{{end}}
     {{if .FolderName}}<div class="fold"><a href="/folders/{{.FolderRef}}">{{.FolderName}}</a></div>{{end}}
+    {{if .Interfaces}}
+    <div class="card-io">
+      {{range .Interfaces}}<span class="io-pill" title="{{.}}">{{ioIcon .}}</span>{{end}}
+    </div>
+    {{end}}
     {{if .Tags}}
     <div class="card-tags">
       {{range .Tags}}<a class="chip xs" href="/items?tag={{.Name}}">{{if .Icon}}<span class="ti">{{.Icon}}</span>{{end}}{{.Name}}</a>{{end}}
@@ -40,7 +45,7 @@
      "Query", "Categories", "Locations" and "Tags". */}}
 {{define "filterChips"}}
 {{$q := .Query}}
-{{if or .Categories (or .Locations .Tags)}}
+{{if or .Categories .Locations .Tags .IO}}
 <div class="filters">
   {{if .Categories}}
   <div class="filter-row">
@@ -55,6 +60,14 @@
     <span class="filter-label">Where</span>
     {{range .Locations}}
       <a class="chip{{if eq $q.Location .Value}} on{{end}}" href="{{query $q "location" .Value}}">{{.Value}} <span class="n">{{.Count}}</span></a>
+    {{end}}
+  </div>
+  {{end}}
+  {{if .IO}}
+  <div class="filter-row">
+    <span class="filter-label">IO</span>
+    {{range .IO}}
+      <a class="chip{{if hasIO $q .Value}} on{{end}}" href="{{toggleIO $q .Value}}"><span class="ti">{{.Icon}}</span>{{.Value}} <span class="n">{{.Count}}</span></a>
     {{end}}
   </div>
   {{end}}

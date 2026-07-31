@@ -106,6 +106,26 @@
     {{end}}
   </div>
 
+  <fieldset class="field wide io-picker">
+    <legend>IO &amp; interfaces <em>what it speaks and needs</em></legend>
+    {{range $d.IOGroups}}
+    <div class="io-group">
+      <span class="filter-label">{{.Name}}</span>
+      {{range .Members}}
+      <label class="io-opt">
+        <input type="checkbox" name="interface" value="{{.}}"{{if $d.HasInterface .}} checked{{end}}>
+        <span><span class="ti">{{ioIcon .}}</span>{{.}}</span>
+      </label>
+      {{end}}
+    </div>
+    {{end}}
+  </fieldset>
+
+  <label class="field wide">
+    <span>Specifications <em>one per line, "name: value"</em></span>
+    <textarea name="specs" rows="4" placeholder="Logic level: 3.3V&#10;Flash: 8MB&#10;Dimensions: 51 x 23 mm">{{$it.SpecText}}</textarea>
+  </label>
+
   <label class="field wide">
     <span>Link <em>datasheet or product page</em></span>
     <input name="link" id="f-link" type="url" value="{{$it.Link}}" placeholder="https://…">

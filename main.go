@@ -177,6 +177,20 @@ func (a *App) routes() http.Handler {
 	protected.HandleFunc("GET /tags", a.handleTags)
 	protected.HandleFunc("POST /tags/icon", a.handleSetTagIcon)
 
+	// Projects: a bill of materials plus what the shelf cannot cover.
+	protected.HandleFunc("GET /projects", a.handleProjects)
+	protected.HandleFunc("POST /projects", a.handleCreateProject)
+	protected.HandleFunc("GET /projects/{id}", a.handleProject)
+	protected.HandleFunc("POST /projects/{id}", a.handleUpdateProject)
+	protected.HandleFunc("POST /projects/{id}/delete", a.handleDeleteProject)
+	protected.HandleFunc("POST /projects/{id}/parts", a.handleAddProjectPart)
+	protected.HandleFunc("POST /project-parts/{id}/delete", a.handleDeleteProjectPart)
+
+	// Datasheets, pinouts and manuals.
+	protected.HandleFunc("POST /items/{id}/refs", a.handleAddReference)
+	protected.HandleFunc("POST /refs/{id}/delete", a.handleDeleteReference)
+	protected.HandleFunc("POST /items/{id}/price/refresh", a.handleRefreshPrice)
+
 	// Look a part up by name, or read a URL the person pasted.
 	protected.HandleFunc("POST /import/search", a.handleSearch)
 	protected.HandleFunc("POST /import/preview", a.handleImportPreview)
@@ -241,6 +255,19 @@ func templateFuncs() template.FuncMap {
 		"toggleTag": func(q Query, tag string) template.URL {
 			return template.URL(q.WithTagToggled(tag))
 		},
+		"toggleIO": func(q Query, name string) template.URL {
+			return template.URL(q.WithInterfaceToggled(name))
+		},
+		"hasIO": func(q Query, name string) bool {
+			for _, i := range q.Interfaces {
+				if strings.EqualFold(i, name) {
+					return true
+				}
+			}
+			return false
+		},
+		"ioIcon": IconForInterface,
+		"slice":  func(v ...string) []string { return v },
 		"hasTag": func(q Query, tag string) bool {
 			for _, t := range q.Tags {
 				if strings.EqualFold(t, tag) {

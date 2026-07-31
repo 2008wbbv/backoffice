@@ -318,3 +318,55 @@ if (tagSuggest) {
   field.addEventListener('input', sync);
   sync();
 }
+
+// --- drag a link or image onto the add form ---------------------------------
+// Dragging a product page from another tab, or an image file off the desktop,
+// is quicker than copy-pasting into the right box. A dropped URL goes through
+// the same importer; a dropped file goes into the photo picker.
+const itemForm = document.getElementById('item-form');
+if (itemForm) {
+  let depth = 0; // dragenter/leave fire per element, so nesting needs counting
+
+  document.addEventListener('dragenter', (e) => {
+    if (!e.dataTransfer) return;
+    depth++;
+    document.body.classList.add('drag-target');
+  });
+  document.addEventListener('dragleave', () => {
+    if (--depth <= 0) {
+      depth = 0;
+      document.body.classList.remove('drag-target');
+    }
+  });
+  document.addEventListener('dragover', (e) => e.preventDefault());
+
+  document.addEventListener('drop', (e) => {
+    e.preventDefault();
+    depth = 0;
+    document.body.classList.remove('drag-target');
+    if (!e.dataTransfer) return;
+
+    // An image file dropped from the desktop.
+    const file = [...e.dataTransfer.files].find((f) => f.type.startsWith('image/'));
+    if (file) {
+      const picker = itemForm.querySelector('input[type=file][name=photos]');
+      if (picker) {
+        const dt = new DataTransfer();
+        [...e.dataTransfer.files].forEach((f) => dt.items.add(f));
+        picker.files = dt.files;
+      }
+      return;
+    }
+
+    // Otherwise look for a URL: a dragged link, or an image dragged from a page.
+    const text = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
+    const url = (text || '').trim().split('\n')[0];
+    if (!/^https?:\/\//i.test(url)) return;
+
+    const target = document.getElementById('import-url');
+    if (target) {
+      target.value = url;
+      document.getElementById('import-go')?.click();
+    }
+  });
+}

@@ -16,6 +16,47 @@
   <div class="tile"><b>{{$d.Stats.ValueDisplay}}</b><span>shelf value</span></div>
 </div>
 
+{{if $d.Recent}}
+<section class="panel-block">
+  <div class="section-head"><h2>Recently updated</h2><a class="chip sm" href="/items">All items</a></div>
+  <ul class="grid">
+    {{range $d.Recent}}{{template "itemCard" .}}{{end}}
+  </ul>
+</section>
+{{else}}
+<div class="empty">
+  <p><strong>Nothing in the inventory yet.</strong></p>
+  <p class="muted">Add your first board, module or component — a photo, a count and where it lives is enough.
+    You can also paste a product link and let it fill itself in.</p>
+  <p><a class="btn primary" href="/items/new">+ Add item</a></p>
+</div>
+{{end}}
+
+<section class="panel-block">
+  <div class="section-head">
+    <h2>Projects</h2>
+    <a class="chip sm" href="/projects">All projects</a>
+  </div>
+  {{if $d.Projects}}
+  <ul class="folders">
+    {{range $d.Projects}}
+    <li class="folder-card">
+      <a href="/projects/{{.ID}}">
+        <div class="folder-icon">{{if .Ready}}✅{{else}}🧰{{end}}</div>
+        <div class="folder-body">
+          <b>{{.Name}}</b>
+          <span class="muted">{{len .Parts}} parts{{with .Shortfall}} · {{len .}} to get{{end}}</span>
+        </div>
+      </a>
+    </li>
+    {{end}}
+  </ul>
+  {{else}}
+  <p class="muted">No projects yet — a project is a parts list that tells you what you're missing.
+    <a href="/projects">Start one</a>.</p>
+  {{end}}
+</section>
+
 <section class="panel-block">
   <div class="section-head">
     <h2>Folders</h2>
@@ -83,22 +124,6 @@
     {{end}}
   </ul>
 </section>
-{{end}}
-
-{{if $d.Recent}}
-<section class="panel-block">
-  <div class="section-head"><h2>Recently updated</h2><a class="chip sm" href="/items">All items</a></div>
-  <ul class="grid">
-    {{range $d.Recent}}{{template "itemCard" .}}{{end}}
-  </ul>
-</section>
-{{else}}
-<div class="empty">
-  <p><strong>Nothing in the inventory yet.</strong></p>
-  <p class="muted">Add your first board, module or component — a photo, a count and where it lives is enough.
-    You can also paste a product link and let it fill itself in.</p>
-  <p><a class="btn primary" href="/items/new">+ Add item</a></p>
-</div>
 {{end}}
 
 {{template "bottom" .}}

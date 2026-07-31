@@ -12,6 +12,7 @@ import (
 // --- dashboard --------------------------------------------------------------
 
 type dashboardData struct {
+	Projects []Project
 	Folders  []*Folder
 	Flat     []*Folder
 	Stats    Stats
@@ -50,7 +51,14 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	projects, err := a.store.ListProjects()
+	if err != nil {
+		a.fail(w, err, http.StatusInternalServerError)
+		return
+	}
+
 	a.render(w, r, "dashboard.html", "", dashboardData{
+		Projects: firstN(projects, 4),
 		Folders:  tree,
 		Flat:     FlattenFolders(tree),
 		Stats:    stats,
@@ -96,6 +104,7 @@ type folderData struct {
 	Categories  []Facet
 	Locations   []Facet
 	Tags        []Facet
+	IO          []Facet
 	Stats       Stats
 	Query       Query
 	Recursive   bool
@@ -162,6 +171,7 @@ func (a *App) handleFolder(w http.ResponseWriter, r *http.Request) {
 	data.Categories, _ = a.store.Facets("category")
 	data.Locations, _ = a.store.Facets("location")
 	data.Tags, _ = a.store.TagFacets()
+	data.IO, _ = a.store.InterfaceFacets()
 
 	a.render(w, r, "folder.html", folder.Name, data)
 }

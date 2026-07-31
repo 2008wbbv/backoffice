@@ -68,6 +68,7 @@ type indexData struct {
 	Categories []Facet
 	Locations  []Facet
 	Tags       []Facet
+	IO         []Facet
 	Folders    []*Folder
 	Stats      Stats
 	Query      Query
@@ -88,6 +89,11 @@ func (a *App) queryFromRequest(r *http.Request) Query {
 	for _, t := range v["tag"] {
 		if t = strings.TrimSpace(t); t != "" {
 			q.Tags = append(q.Tags, t)
+		}
+	}
+	for _, io := range v["io"] {
+		if io = strings.TrimSpace(io); io != "" {
+			q.Interfaces = append(q.Interfaces, io)
 		}
 	}
 	return q
@@ -127,11 +133,18 @@ func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	io, err := a.store.InterfaceFacets()
+	if err != nil {
+		a.fail(w, err, http.StatusInternalServerError)
+		return
+	}
+
 	a.render(w, r, "index.html", "All items", indexData{
 		Items:      items,
 		Categories: cats,
 		Locations:  locs,
 		Tags:       tags,
+		IO:         io,
 		Folders:    FlattenFolders(tree),
 		Stats:      stats,
 		Query:      q,
@@ -143,7 +156,10 @@ func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 type itemData struct {
 	Item
-	Folders []*Folder
+	Folders  []*Folder
+	History  []PricePoint
+	Changes  []PriceChange
+	RefKinds []string
 }
 
 func (a *App) handleItem(w http.ResponseWriter, r *http.Request) {
@@ -151,7 +167,18 @@ func (a *App) handleItem(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	a.render(w, r, "item.html", it.Name, itemData{Item: it, Folders: a.folderListOrNil()})
+	history, err := a.store.PriceHistory(it.ID)
+	if err != nil {
+		a.fail(w, err, http.StatusInternalServerError)
+		return
+	}
+	a.render(w, r, "item.html", it.Name, itemData{
+		Item:     it,
+		Folders:  a.folderListOrNil(),
+		History:  history,
+		Changes:  PriceChanges(history),
+		RefKinds: RefKinds,
+	})
 }
 
 func (a *App) handleNewForm(w http.ResponseWriter, r *http.Request) {
@@ -159,6 +186,7 @@ func (a *App) handleNewForm(w http.ResponseWriter, r *http.Request) {
 	// looking at a folder files it there by default.
 	item := Item{
 		Quantity: 1,
+		Name:     strings.TrimSpace(r.URL.Query().Get("name")),
 		Location: r.URL.Query().Get("location"),
 		Category: r.URL.Query().Get("category"),
 		FolderID: optionalID(r.URL.Query().Get("folder")),
@@ -172,6 +200,7 @@ func (a *App) handleNewForm(w http.ResponseWriter, r *http.Request) {
 		Locations:  a.facetsOrNil("location"),
 		Tags:       a.tagFacetsOrNil(),
 		Folders:    a.folderListOrNil(),
+		IOGroups:   InterfaceGroups(),
 		IsNew:      true,
 	})
 }
@@ -207,7 +236,18 @@ type editData struct {
 	Locations  []Facet
 	Tags       []Facet
 	Folders    []*Folder
+	IOGroups   []InterfaceGroup
 	IsNew      bool
+}
+
+// HasInterface drives the checkbox state on the edit form.
+func (d editData) HasInterface(name string) bool {
+	for _, i := range d.Item.Interfaces {
+		if i == name {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *App) handleEditForm(w http.ResponseWriter, r *http.Request) {
@@ -221,6 +261,7 @@ func (a *App) handleEditForm(w http.ResponseWriter, r *http.Request) {
 		Locations:  a.facetsOrNil("location"),
 		Tags:       a.tagFacetsOrNil(),
 		Folders:    a.folderListOrNil(),
+		IOGroups:   InterfaceGroups(),
 	})
 }
 
@@ -253,6 +294,8 @@ func itemFromForm(r *http.Request) (Item, error) {
 		Link:       strings.TrimSpace(r.FormValue("link")),
 		Notes:      strings.TrimSpace(r.FormValue("notes")),
 		FolderID:   optionalID(r.FormValue("folder_id")),
+		Interfaces: r.Form["interface"],
+		Specs:      ParseSpecs(r.FormValue("specs")),
 	}, nil
 }
 
