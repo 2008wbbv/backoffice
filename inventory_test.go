@@ -43,6 +43,8 @@ func newTestApp(t *testing.T) *App {
 		tmpl:    mustTemplates(),
 		auth:    auth,
 		fetcher: NewFetcher(true), // tests serve fixtures from loopback
+		// No shops by default: a unit test should not reach the internet.
+		search: &SearchHub{},
 	}
 }
 

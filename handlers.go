@@ -156,6 +156,7 @@ func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 type itemData struct {
 	Item
+	Octopart bool // credentials present, so the enrich action is worth offering
 	Folders  []*Folder
 	History  []PricePoint
 	Changes  []PriceChange
@@ -174,6 +175,7 @@ func (a *App) handleItem(w http.ResponseWriter, r *http.Request) {
 	}
 	a.render(w, r, "item.html", it.Name, itemData{
 		Item:     it,
+		Octopart: a.search.Nexar() != nil,
 		Folders:  a.folderListOrNil(),
 		History:  history,
 		Changes:  PriceChanges(history),

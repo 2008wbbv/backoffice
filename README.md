@@ -50,6 +50,8 @@ Everything is optional. The defaults are the intended setup.
 | `SITE_TITLE` | `Backoffice` | Name in the header and browser tab. |
 | `BASE_URL` | *(request host)* | Public address printed into QR labels. Set this when behind a reverse proxy. |
 | `SHOPIFY_SHOPS` | `thepihut.com,shop.pimoroni.com` | Shopify storefronts to search, comma separated. `none` disables them. |
+| `NEXAR_CLIENT_ID` / `NEXAR_CLIENT_SECRET` | *(unset)* | Octopart credentials. The app mints and renews its own tokens. |
+| `NEXAR_TOKEN` | *(unset)* | A pasted Nexar access token, for a quick try. These expire in 24 hours. |
 | `ALLOW_PRIVATE_FETCH` | *(unset)* | Let "import from a link" reach LAN addresses. See below. |
 | `TZ` | `UTC` | Affects the "updated 3 hours ago" timestamps. |
 
@@ -93,6 +95,7 @@ Which shops can actually be searched from a server is not a matter of taste:
 | --- | --- |
 | **Adafruit** | Yes. It publishes its whole catalogue as JSON, which is cached for six hours and searched locally, so only the first search waits. |
 | **Any Shopify shop** | Yes. Shopify ships a public search endpoint (`/search/suggest.json`) that every store built on it exposes — no key, no account. The Pi Hut and Pimoroni are searched by default; `SHOPIFY_SHOPS` points it at the shops you actually buy from. |
+| **Octopart** | Yes, with credentials. Nexar's GraphQL API answers with the manufacturer part number, distributor stock and pricing, factory lead times, specifications and a datasheet — the one source here that is about *parts* rather than products. Needs a Nexar plan with part quota. |
 | **Amazon** | No. Automated requests get a bot interstitial with no product data in it, and their terms direct you to the Product Advertising API, which needs an affiliate account. |
 | **AliExpress** | No. Server-side requests are bounced through redirects. |
 
@@ -197,6 +200,31 @@ drive the project suggestions.
 a link or a stored image. A pinout given as a URL is *downloaded*, so it shows on
 the page and survives the source moving it; if the image can't be fetched the link
 is still kept, and the page says why it stayed a link.
+
+### Octopart
+
+Octopart is different from the shops: it indexes *parts*, so a lookup by
+manufacturer part number returns specifications, a datasheet, and what several
+distributors charge with their stock levels and factory lead times. All of that
+maps directly onto what this app already stores.
+
+**Fill in from Octopart** on an item page looks up its part number and writes
+back the specifications, attaches the datasheet, and records up to five
+distributor prices with their lead times. It needs a part number rather than a
+product name — "ESP32-WROOM-32E", not "ESP32 board" — because a name matches the
+wrong silicon far too easily, and it refuses rather than guessing.
+
+**Credentials.** Nexar uses OAuth. Set `NEXAR_CLIENT_ID` and
+`NEXAR_CLIENT_SECRET` and the app mints and renews its own tokens. `NEXAR_TOKEN`
+accepts a pasted access token instead, which is fine for a quick try but expires
+within 24 hours — when it does, the app says so and points at the client
+credentials rather than failing with a bare 401.
+
+**Plan quota.** Nexar's free tier includes no part quota. Every supply query then
+answers HTTP 200 with `You have exceeded your part limit of 0` inside the GraphQL
+errors array. That message is passed through verbatim to the search notes and the
+item page, because "no results" would send you hunting for a bug that isn't
+there.
 
 ### Quick add
 
@@ -333,6 +361,7 @@ Layout:
 | `handlers_projects.go` | Projects, references and price refresh |
 | `handlers_quick.go` | One-paste quick add and the type-ahead endpoint |
 | `search_shopify.go` | Shopify storefront search |
+| `search_nexar.go` | Octopart via Nexar: OAuth, GraphQL, part detail |
 | `labels.go` | QR / barcode generation and the print sheet |
 | `fetch.go` | Outbound fetching, SSRF guards, OpenGraph parsing |
 | `images.go` | Upload validation, thumbnails, EXIF orientation |

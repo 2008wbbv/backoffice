@@ -29,7 +29,10 @@ type Config struct {
 	Title        string
 	BaseURL      string   // public address, for the URLs printed into QR codes
 	ShopifyShops []string // storefronts to search, by hostname
-	AllowPrivate bool     // let URL imports reach LAN addresses
+	NexarID      string   // Octopart / Nexar OAuth client credentials
+	NexarSecret  string
+	NexarToken   string // a pasted access token; expires within a day
+	AllowPrivate bool   // let URL imports reach LAN addresses
 }
 
 func configFromEnv() Config {
@@ -39,6 +42,11 @@ func configFromEnv() Config {
 		Password: os.Getenv("AUTH_PASSWORD"),
 		Title:    env("SITE_TITLE", "Backoffice"),
 		BaseURL:  os.Getenv("BASE_URL"),
+		// Credentials come from the environment and are never written to the
+		// database, the templates, or the logs.
+		NexarID:     os.Getenv("NEXAR_CLIENT_ID"),
+		NexarSecret: os.Getenv("NEXAR_CLIENT_SECRET"),
+		NexarToken:  os.Getenv("NEXAR_TOKEN"),
 	}
 	c.ShopifyShops = defaultShopifyShops
 	if raw := strings.TrimSpace(os.Getenv("SHOPIFY_SHOPS")); raw != "" {
@@ -106,7 +114,7 @@ func main() {
 		tmpl:    mustTemplates(),
 		auth:    auth,
 		fetcher: fetcher,
-		search:  NewSearchHub(fetcher, cfg.ShopifyShops),
+		search:  NewSearchHub(fetcher, cfg),
 	}
 
 	srv := &http.Server{
@@ -126,8 +134,8 @@ func main() {
 		if cfg.AllowPrivate {
 			fetch = "private addresses allowed"
 		}
-		log.Printf("%s listening on http://localhost%s  data=%s  auth=%s  url-import=%s",
-			cfg.Title, cfg.Addr, cfg.DataDir, mode, fetch)
+		log.Printf("%s listening on http://localhost%s  data=%s  auth=%s  url-import=%s  search=%s",
+			cfg.Title, cfg.Addr, cfg.DataDir, mode, fetch, strings.Join(app.search.Sources(), ", "))
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("server: %v", err)
 		}
@@ -202,6 +210,7 @@ func (a *App) routes() http.Handler {
 	protected.HandleFunc("POST /items/{id}/refs", a.handleAddReference)
 	protected.HandleFunc("POST /refs/{id}/delete", a.handleDeleteReference)
 	protected.HandleFunc("POST /items/{id}/price/refresh", a.handleRefreshPrice)
+	protected.HandleFunc("POST /items/{id}/octopart", a.handleEnrichFromOctopart)
 
 	// Labels: a QR code opens the item on a phone, a barcode feeds a scanner.
 	protected.HandleFunc("GET /labels", a.handleLabels)

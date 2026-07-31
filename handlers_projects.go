@@ -306,3 +306,93 @@ func (a *App) handleRefreshPrice(w http.ResponseWriter, r *http.Request) {
 	}
 	redirect(w, r, dest, fmt.Sprintf("%s is %s today", best.Source, formatMoney(best.Price, best.Currency)), "")
 }
+
+// handleEnrichFromOctopart fills an item in from Octopart: specifications,
+// the datasheet, and one price per distributor with its stock and lead time.
+//
+// It is a separate action rather than part of saving, because it overwrites
+// specs and adds prices -- worth doing on purpose, not as a side effect.
+func (a *App) handleEnrichFromOctopart(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	it, err := a.store.GetItem(id)
+	if errors.Is(err, sql.ErrNoRows) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		a.fail(w, err, http.StatusInternalServerError)
+		return
+	}
+	dest := fmt.Sprintf("/items/%d", id)
+
+	nexar := a.search.Nexar()
+	if nexar == nil {
+		redirect(w, r, dest, "",
+			"Octopart is not configured — set NEXAR_CLIENT_ID and NEXAR_CLIENT_SECRET")
+		return
+	}
+
+	// A part number is the only thing worth looking up; a product name matches
+	// the wrong silicon far too easily.
+	mpn := strings.TrimSpace(it.PartNumber)
+	if mpn == "" {
+		redirect(w, r, dest, "", "add a manufacturer part number first — Octopart looks up parts, not product names")
+		return
+	}
+
+	detail, err := nexar.Lookup(r.Context(), mpn)
+	if err != nil {
+		redirect(w, r, dest, "", err.Error())
+		return
+	}
+
+	var added []string
+
+	if len(detail.Specs) > 0 {
+		it.Specs = detail.Specs
+		if err := a.store.UpdateItem(it); err != nil {
+			a.fail(w, err, http.StatusInternalServerError)
+			return
+		}
+		added = append(added, fmt.Sprintf("%d specs", len(detail.Specs)))
+	}
+
+	if detail.Datasheet != nil {
+		if a.attachDiscoveredDocuments(r, id, []PageDocument{*detail.Datasheet}) > 0 {
+			added = append(added, "datasheet")
+		}
+	}
+
+	// One price per distributor, cheapest first, capped so a widely stocked
+	// part does not bury the item page under twenty sellers.
+	priced := 0
+	seen := map[string]bool{}
+	for _, o := range detail.Offers {
+		if priced >= 5 {
+			break
+		}
+		if o.Seller == "" || seen[o.Seller] {
+			continue
+		}
+		seen[o.Seller] = true
+		err := a.store.SetPrice(id, Price{
+			Source: o.Seller, Amount: o.Price, Currency: o.Currency,
+			URL: o.URL, LeadDays: o.LeadDays,
+		})
+		if err == nil {
+			priced++
+		}
+	}
+	if priced > 0 {
+		added = append(added, fmt.Sprintf("%d distributor prices", priced))
+	}
+
+	if len(added) == 0 {
+		redirect(w, r, dest, "", "Octopart knows that part but had nothing new to add")
+		return
+	}
+	redirect(w, r, dest, "From Octopart: "+strings.Join(added, ", "), "")
+}

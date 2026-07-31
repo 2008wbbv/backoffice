@@ -149,6 +149,12 @@
         <button class="btn tiny ghost" type="submit">Check price now</button>
         <span class="muted">searchable sources only</span>
       </form>
+      {{if $it.Octopart}}
+      <form method="post" action="/items/{{$it.ID}}/octopart" class="refresh">
+        <button class="btn tiny ghost" type="submit">Fill in from Octopart</button>
+        <span class="muted">specs, datasheet and distributor prices, by part number</span>
+      </form>
+      {{end}}
       </details>
     </section>
 

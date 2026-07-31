@@ -39,18 +39,40 @@ type SearchHub struct {
 
 // NewSearchHub wires up every source that can actually be queried. Shops are
 // configurable because which ones matter depends on where you live.
-func NewSearchHub(f *Fetcher, shopifyShops []string) *SearchHub {
+func NewSearchHub(f *Fetcher, cfg Config) *SearchHub {
 	providers := []SearchProvider{NewAdafruitProvider(f)}
-	for _, shop := range shopifyShops {
+	for _, shop := range cfg.ShopifyShops {
 		if shop = strings.TrimSpace(shop); shop != "" {
 			providers = append(providers, NewShopifyProvider(f, shop))
 		}
 	}
+	// Octopart only joins in when there are credentials for it, so an
+	// unconfigured install is not nagged on every search.
+	if nexar := NewNexarProvider(f, cfg.NexarID, cfg.NexarSecret, cfg.NexarToken); nexar.Configured() {
+		providers = append(providers, nexar)
+	}
 	return &SearchHub{providers: providers}
+}
+
+// Nexar returns the Octopart provider when one is configured, for the
+// part-detail lookup that search alone does not cover.
+func (h *SearchHub) Nexar() *NexarProvider {
+	if h == nil {
+		return nil
+	}
+	for _, p := range h.providers {
+		if n, ok := p.(*NexarProvider); ok {
+			return n
+		}
+	}
+	return nil
 }
 
 // Sources names what is being searched, for the UI.
 func (h *SearchHub) Sources() []string {
+	if h == nil {
+		return nil
+	}
 	out := make([]string, 0, len(h.providers))
 	for _, p := range h.providers {
 		out = append(out, p.Name())

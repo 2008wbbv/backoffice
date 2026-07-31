@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -276,6 +277,83 @@ func (f *Fetcher) FetchImage(ctx context.Context, raw string) ([]byte, error) {
 	}
 	if len(body) == 0 {
 		return nil, fmt.Errorf("that URL returned an empty response")
+	}
+	return body, nil
+}
+
+// PostJSON sends a JSON request body through the same guarded client the rest
+// of the app uses, so an API endpoint gets the same SSRF and size protections
+// as a pasted link.
+func (f *Fetcher) PostJSON(ctx context.Context, target string, payload []byte, headers map[string]string, limit int64) ([]byte, error) {
+	if _, err := parseTarget(target); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	res, err := f.client.Do(req)
+	if err != nil {
+		return nil, cleanFetchError(err)
+	}
+	defer res.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(res.Body, limit+1))
+	if err != nil {
+		return nil, cleanFetchError(err)
+	}
+	if int64(len(body)) > limit {
+		return nil, fmt.Errorf("that response is larger than %d MiB", limit>>20)
+	}
+	// A GraphQL endpoint answers 200 with an errors array, so the status is
+	// only interesting when it denies the request outright.
+	if res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden {
+		return body, fmt.Errorf("the API rejected these credentials (HTTP %d)", res.StatusCode)
+	}
+	if res.StatusCode >= 500 {
+		return body, fmt.Errorf("the API is unavailable (HTTP %d)", res.StatusCode)
+	}
+	return body, nil
+}
+
+// PostForm posts urlencoded data, which is what OAuth token endpoints take.
+func (f *Fetcher) PostForm(ctx context.Context, target string, form url.Values, limit int64) ([]byte, error) {
+	if _, err := parseTarget(target); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+
+	res, err := f.client.Do(req)
+	if err != nil {
+		return nil, cleanFetchError(err)
+	}
+	defer res.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(res.Body, limit+1))
+	if err != nil {
+		return nil, cleanFetchError(err)
+	}
+	if res.StatusCode < 200 || res.StatusCode > 299 {
+		return body, fmt.Errorf("token request failed (HTTP %d)", res.StatusCode)
 	}
 	return body, nil
 }

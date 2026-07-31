@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -17,6 +18,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // --- tags -------------------------------------------------------------------
@@ -1756,4 +1758,201 @@ func (s *stubProvider) Search(context.Context, string, int) ([]SearchResult, err
 		out[i] = SearchResult{Source: s.name, Title: fmt.Sprintf("%s %d", s.name, i)}
 	}
 	return out, nil
+}
+
+// --- Octopart / Nexar ---------------------------------------------------------
+
+// nexarStub stands in for api.nexar.com so the integration can be tested
+// without a plan, a network, or a credential.
+func nexarStub(t *testing.T, respond func(query string) string) (*NexarProvider, *httptest.Server) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "token") {
+			fmt.Fprint(w, `{"access_token":"minted-token","expires_in":86400}`)
+			return
+		}
+		if got := r.Header.Get("Authorization"); !strings.HasPrefix(got, "Bearer ") {
+			http.Error(w, "no bearer token", http.StatusUnauthorized)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		var req struct {
+			Query string `json:"query"`
+		}
+		json.Unmarshal(body, &req)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, respond(req.Query))
+	}))
+	t.Cleanup(srv.Close)
+
+	p := NewNexarProvider(NewFetcher(true), "client", "secret", "")
+	p.endpoint = srv.URL + "/graphql"
+	p.tokenURL = srv.URL + "/token"
+	return p, srv
+}
+
+const nexarPartJSON = `{"data":{"supSearchMpn":{"results":[{"part":{
+  "mpn":"ESP32-WROOM-32E","manufacturer":{"name":"Espressif"},
+  "shortDescription":"WiFi/BLE module","octopartUrl":"https://octopart.com/x",
+  "bestImage":{"url":"https://img.example/esp32.jpg"},
+  "bestDatasheet":{"name":"ESP32-WROOM-32E datasheet","url":"https://ex.com/ds.pdf"},
+  "medianPrice1000":{"price":2.10,"currency":"USD"},
+  "specs":[{"attribute":{"name":"Frequency"},"displayValue":"2.4 GHz"},
+           {"attribute":{"name":"Flash"},"displayValue":"4 MB"}],
+  "sellers":[
+    {"company":{"name":"Mouser"},"offers":[{"clickUrl":"https://mouser/x","inventoryLevel":1200,
+      "factoryLeadDays":21,"prices":[{"quantity":1,"price":3.50,"currency":"USD"},{"quantity":100,"price":2.40,"currency":"USD"}]}]},
+    {"company":{"name":"Digi-Key"},"offers":[{"clickUrl":"https://dk/x","inventoryLevel":0,
+      "factoryLeadDays":40,"prices":[{"quantity":1,"price":2.90,"currency":"USD"}]}]},
+    {"company":{"name":"LCSC"},"offers":[{"clickUrl":"https://lcsc/x","inventoryLevel":500,
+      "prices":[{"quantity":1,"price":3.10,"currency":"USD"}]}]}
+  ]}}]}}}`
+
+func TestNexarSearchReadsPartsAndPicksTheBestOffer(t *testing.T) {
+	p, _ := nexarStub(t, func(string) string { return nexarPartJSON })
+
+	got, err := p.Search(context.Background(), "ESP32-WROOM-32E", 5)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d results, want 1", len(got))
+	}
+	r := got[0]
+	if r.PartNumber != "ESP32-WROOM-32E" || r.Source != "Octopart" {
+		t.Errorf("unexpected result %+v", r)
+	}
+	// LCSC is cheapest among sellers with stock (3.10 vs Mouser 3.50);
+	// Digi-Key is cheaper still at 2.90 but has none, so it must not win.
+	if r.Price != 3.10 {
+		t.Errorf("price = %v, want the cheapest in-stock single-unit price (3.10)", r.Price)
+	}
+	if !strings.Contains(r.Stock, "LCSC") {
+		t.Errorf("stock = %q, want it to name the distributor", r.Stock)
+	}
+}
+
+func TestNexarLookupMapsOntoTheItemModel(t *testing.T) {
+	p, _ := nexarStub(t, func(string) string { return nexarPartJSON })
+
+	detail, err := p.Lookup(context.Background(), "ESP32-WROOM-32E")
+	if err != nil {
+		t.Fatalf("Lookup: %v", err)
+	}
+	if len(detail.Specs) != 2 || detail.Specs[0].Name != "Frequency" {
+		t.Errorf("specs = %+v", detail.Specs)
+	}
+	if detail.Datasheet == nil || detail.Datasheet.Kind != "datasheet" {
+		t.Errorf("datasheet = %+v", detail.Datasheet)
+	}
+	if len(detail.Offers) != 3 {
+		t.Fatalf("offers = %d, want one per seller", len(detail.Offers))
+	}
+	// In-stock sellers lead, cheapest first; the price break for quantity 1 is
+	// the one a person buying a single part pays.
+	if detail.Offers[0].Seller != "LCSC" || detail.Offers[0].Price != 3.10 {
+		t.Errorf("first offer = %+v, want the cheapest in-stock seller", detail.Offers[0])
+	}
+	if detail.Offers[len(detail.Offers)-1].Seller != "Digi-Key" {
+		t.Errorf("out-of-stock seller should sort last, got %+v", detail.Offers)
+	}
+	if detail.Offers[0].LeadDays != 0 {
+		t.Errorf("LCSC quoted no lead time; got %d", detail.Offers[0].LeadDays)
+	}
+	for _, o := range detail.Offers {
+		if o.Seller == "Mouser" && o.LeadDays != 21 {
+			t.Errorf("Mouser lead days = %d, want 21", o.LeadDays)
+		}
+	}
+}
+
+func TestNexarSurfacesPlanAndQuotaErrors(t *testing.T) {
+	// This is exactly what a free Nexar account answers: HTTP 200, with the
+	// refusal inside the GraphQL errors array. Swallowing it would look like
+	// "no results" and send someone hunting for a bug in their query.
+	p, _ := nexarStub(t, func(string) string {
+		return `{"errors":[{"message":"You have exceeded your part limit of 0. Please upgrade your plan."}]}`
+	})
+
+	_, err := p.Search(context.Background(), "esp32", 5)
+	if err == nil {
+		t.Fatal("a quota refusal was reported as success")
+	}
+	if !strings.Contains(err.Error(), "part limit") {
+		t.Errorf("error = %q, want the API's own wording passed through", err)
+	}
+}
+
+func TestNexarMintsAndReusesTokens(t *testing.T) {
+	var tokenCalls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "token") {
+			tokenCalls++
+			fmt.Fprint(w, `{"access_token":"minted","expires_in":3600}`)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer minted" {
+			t.Errorf("request carried %q, want the minted token", r.Header.Get("Authorization"))
+		}
+		fmt.Fprint(w, nexarPartJSON)
+	}))
+	defer srv.Close()
+
+	p := NewNexarProvider(NewFetcher(true), "client", "secret", "")
+	p.endpoint, p.tokenURL = srv.URL+"/graphql", srv.URL+"/token"
+
+	for i := 0; i < 3; i++ {
+		if _, err := p.Search(context.Background(), "esp32", 3); err != nil {
+			t.Fatalf("search %d: %v", i, err)
+		}
+	}
+	if tokenCalls != 1 {
+		t.Errorf("minted %d tokens for 3 searches, want 1 reused", tokenCalls)
+	}
+}
+
+func TestNexarRefusesAnExpiredPastedToken(t *testing.T) {
+	// A pasted token cannot be renewed, so when it lapses the app should say
+	// that rather than let the API answer with a bare 401.
+	expired := makeJWT(t, time.Now().Add(-time.Hour))
+	p := NewNexarProvider(NewFetcher(true), "", "", expired)
+	if !p.Configured() {
+		t.Fatal("a pasted token should count as configured")
+	}
+	_, err := p.Search(context.Background(), "esp32", 3)
+	if err == nil || !strings.Contains(err.Error(), "expired") {
+		t.Errorf("error = %v, want it to name the expiry and point at client credentials", err)
+	}
+
+	// A token still in date is used as-is.
+	live := makeJWT(t, time.Now().Add(time.Hour))
+	p2 := NewNexarProvider(NewFetcher(true), "", "", live)
+	if _, err := p2.accessToken(context.Background()); err != nil {
+		t.Errorf("a live pasted token was rejected: %v", err)
+	}
+}
+
+func TestNexarStaysQuietWhenUnconfigured(t *testing.T) {
+	p := NewNexarProvider(NewFetcher(true), "", "", "")
+	if p.Configured() {
+		t.Error("no credentials should not count as configured")
+	}
+	got, err := p.Search(context.Background(), "esp32", 5)
+	if err != nil || len(got) != 0 {
+		t.Errorf("unconfigured search = %v, %v; want silence rather than an error on every search", got, err)
+	}
+}
+
+// makeJWT builds an unsigned token with just the exp claim, which is all the
+// expiry check reads.
+func makeJWT(t *testing.T, exp time.Time) string {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{"exp": exp.Unix()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc := func(b []byte) string {
+		return strings.TrimRight(base64.URLEncoding.EncodeToString(b), "=")
+	}
+	return enc([]byte(`{"alg":"none"}`)) + "." + enc(payload) + ".signature"
 }
