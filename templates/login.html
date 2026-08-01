@@ -1,12 +1,19 @@
 {{define "login.html"}}
 {{template "top" .}}
+{{$d := .Data}}
 
 <form class="form narrow" method="post" action="/login">
   <h1>Sign in</h1>
-  <input type="hidden" name="next" value="{{.Data.Next}}">
+  <input type="hidden" name="next" value="{{$d.Next}}">
+  {{if $d.Accounts}}
+  <label class="field wide">
+    <span>Username{{if $d.Shared}} <em>leave blank to use the shared password</em>{{end}}</span>
+    <input name="username" autofocus autocomplete="username" spellcheck="false">
+  </label>
+  {{end}}
   <label class="field wide">
     <span>Password</span>
-    <input name="password" type="password" autofocus required autocomplete="current-password">
+    <input name="password" type="password" {{if not $d.Accounts}}autofocus{{end}} required autocomplete="current-password">
   </label>
   <div class="actions"><button class="btn primary" type="submit">Sign in</button></div>
 </form>

@@ -630,3 +630,98 @@ body.drag-target::after {
 /* Sections on the item page read as one column of equals. */
 .prices h2, .refs h2, .specs h2, .label-preview > summary { letter-spacing: .01em; }
 .detail .info > section { padding-bottom: 4px; }
+
+/* --- stock that is spoken for -------------------------------------------------- */
+
+.reserved {
+  font-size: 11.5px; color: var(--muted); margin-left: auto;
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.toast.inline { margin: 0 0 14px; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.toast.inline form { margin: 0; }
+.toast.inline b { font-weight: 620; }
+.claims .claim-list { list-style: none; margin: 0; padding: 0; display: flex; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+.claim { font-size: 12.5px; }
+.rows li.contested { border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); }
+.stock-state { margin-bottom: 22px; }
+.tile b.ok { color: var(--ok); }
+
+/* --- pin budget ---------------------------------------------------------------- */
+
+.budget-bar {
+  height: 10px; border-radius: 999px; background: var(--panel-2);
+  border: 1px solid var(--line); overflow: hidden; margin-bottom: 8px;
+}
+.budget-bar > span { display: block; height: 100%; background: var(--accent); }
+.budget-bar.over > span { background: var(--danger); }
+
+/* --- calculators --------------------------------------------------------------- */
+
+.calc-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); align-items: start; }
+.calc {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 14px 15px 15px;
+}
+.calc.open { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.calc h2 { font-size: 15px; font-weight: 620; margin: 0 0 3px; }
+.calc > p.muted { font-size: 13px; margin: 0 0 12px; }
+.calc-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 11px; }
+.calc-fields .field > span { font-size: 12.5px; }
+.calc-fields input, .calc-fields select {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 10px; color: var(--text); font: inherit; font-size: 14px; width: 100%;
+}
+.calc-result { margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--line); }
+.calc-headline { display: block; font-size: 20px; font-weight: 660; letter-spacing: -.01em; margin-bottom: 10px; }
+.calc-result .facts { font-size: 13.5px; margin-bottom: 8px; }
+.calc-warn {
+  font-size: 13px; margin: 6px 0 0;
+  color: color-mix(in srgb, var(--danger) 80%, var(--text));
+}
+.calc-stock { margin-top: 12px; }
+.calc-stock h3 { font-size: 13px; font-weight: 600; margin: 0 0 7px; color: var(--muted); }
+
+/* --- build log ----------------------------------------------------------------- */
+
+.log-add textarea, .bom-form textarea {
+  width: 100%; background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 9px; padding: 10px 11px; color: var(--text); font: inherit;
+  font-size: 14px; resize: vertical; margin-bottom: 8px;
+}
+.log-entries { list-style: none; margin: 16px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.log-entries > li {
+  border-left: 2px solid var(--line); padding: 2px 0 2px 13px;
+}
+.log-head { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.log-head form { margin: 0 0 0 auto; }
+.log-body { margin-top: 5px; font-size: 14px; line-height: 1.5; }
+.log-body p { margin: 0 0 2px; min-height: 1px; }
+.rows.log .stamp {
+  font-variant-numeric: tabular-nums; font-size: 12.5px; color: var(--muted);
+  flex: none; min-width: 11ch;
+}
+
+/* --- admin --------------------------------------------------------------------- */
+
+.facts.wide { grid-template-columns: 170px 1fr; margin-bottom: 14px; }
+.facts .warn, .warn { color: var(--danger); }
+.whoami { font-size: 13px; color: var(--muted); margin-right: 6px; }
+.inline-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--muted); }
+.inline-check input { accent-color: var(--accent); }
+.restore { margin-top: 14px; display: flex; flex-direction: column; gap: 12px; max-width: 520px; }
+.bom-form { display: flex; flex-direction: column; gap: 8px; min-width: 340px; }
+.rows.bom .chip.xs { flex: none; }
+.page-sub { margin-top: -8px; margin-bottom: 18px; }
+
+/* A popover holding more than one form: stacking them keeps the second from
+   landing on top of the first, which fixed offsets could not survive. */
+.inline-form .pop {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 15;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 10px; display: flex; flex-direction: column; gap: 10px;
+  width: max-content; max-width: 92vw; box-shadow: 0 10px 30px rgba(0,0,0,.28);
+}
+.inline-form .pop form {
+  position: static; background: none; border: none; padding: 0;
+  box-shadow: none; width: auto; max-width: none;
+}

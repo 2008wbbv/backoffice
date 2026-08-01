@@ -29,6 +29,9 @@ type projectData struct {
 	Project     Project
 	Suggestions []Item
 	AllItems    []Item
+	Pins        PinBudget
+	Log         []LogEntry
+	Statuses    []string
 }
 
 func (a *App) handleProject(w http.ResponseWriter, r *http.Request) {
@@ -56,10 +59,131 @@ func (a *App) handleProject(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err, http.StatusInternalServerError)
 		return
 	}
+	entries, err := a.store.LogEntries(id)
+	if err != nil {
+		a.fail(w, err, http.StatusInternalServerError)
+		return
+	}
 
 	a.render(w, r, "project.html", p.Name, projectData{
-		Project: p, Suggestions: suggestions, AllItems: all,
+		Project:     p,
+		Suggestions: suggestions,
+		AllItems:    all,
+		Pins:        BudgetPins(p),
+		Log:         entries,
+		Statuses:    ProjectStatuses,
 	})
+}
+
+// handleConsumeProject takes the project's parts off the shelf for real. It is
+// a deliberate action rather than a side effect of changing the status, because
+// it is the only thing in the app that changes stock without being asked to
+// item by item.
+func (a *App) handleConsumeProject(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	dest := fmt.Sprintf("/projects/%d", id)
+	taken, short, err := a.store.ConsumeProject(id)
+	if err != nil {
+		redirect(w, r, dest, "", err.Error())
+		return
+	}
+	a.store.Record(a.actor(r), "built a project", "project", id,
+		fmt.Sprintf("%s taken off the shelf", plural(taken, "piece")))
+
+	msg := fmt.Sprintf("Marked built — %s came off the shelf", plural(taken, "piece"))
+	var note string
+	if short > 0 {
+		note = fmt.Sprintf("%s were not in stock, so nothing was deducted for those", plural(short, "piece"))
+	}
+	redirect(w, r, dest, msg, note)
+}
+
+// handleReturnProject puts back exactly what the build took.
+func (a *App) handleReturnProject(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	dest := fmt.Sprintf("/projects/%d", id)
+	back, err := a.store.ReturnProject(id)
+	if err != nil {
+		redirect(w, r, dest, "", err.Error())
+		return
+	}
+	a.store.Record(a.actor(r), "unbuilt a project", "project", id,
+		fmt.Sprintf("%s returned", plural(back, "piece")))
+	redirect(w, r, dest, fmt.Sprintf("Put %s back on the shelf", plural(back, "piece")), "")
+}
+
+// --- build log --------------------------------------------------------------
+
+func (a *App) handleAddLogEntry(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if err := parseForm(r); err != nil {
+		a.fail(w, err, http.StatusBadRequest)
+		return
+	}
+	dest := fmt.Sprintf("/projects/%d", id)
+
+	body := strings.TrimSpace(r.FormValue("body"))
+	hasPhotos := r.MultipartForm != nil && len(r.MultipartForm.File["photos"]) > 0
+	if body == "" && !hasPhotos {
+		redirect(w, r, dest, "", "write something, or attach a photo")
+		return
+	}
+
+	entryID, err := a.store.AddLogEntry(id, body, a.actor(r))
+	if err != nil {
+		a.fail(w, err, http.StatusInternalServerError)
+		return
+	}
+
+	var failures []string
+	if r.MultipartForm != nil {
+		for _, fh := range r.MultipartForm.File["photos"] {
+			if fh.Size == 0 {
+				continue
+			}
+			f, err := fh.Open()
+			if err != nil {
+				failures = append(failures, fh.Filename+": "+err.Error())
+				continue
+			}
+			name, err := a.photos.Save(f, fh.Filename)
+			f.Close()
+			if err != nil {
+				failures = append(failures, err.Error())
+				continue
+			}
+			if err := a.store.AddLogPhoto(entryID, name); err != nil {
+				a.photos.Remove(name)
+				failures = append(failures, fh.Filename+": "+err.Error())
+			}
+		}
+	}
+	redirect(w, r, dest, "Added to the build log", strings.Join(failures, "; "))
+}
+
+func (a *App) handleDeleteLogEntry(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	projectID, files, err := a.store.DeleteLogEntry(id)
+	if err != nil {
+		a.fail(w, err, http.StatusInternalServerError)
+		return
+	}
+	for _, f := range files {
+		a.photos.Remove(f)
+	}
+	redirect(w, r, fmt.Sprintf("/projects/%d", projectID), "Entry removed", "")
 }
 
 func (a *App) handleCreateProject(w http.ResponseWriter, r *http.Request) {
@@ -96,8 +220,17 @@ func (a *App) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	status := orDefault(r.FormValue("status"), "planning")
-	if err := a.store.UpdateProject(id, name, strings.TrimSpace(r.FormValue("notes")), status); err != nil {
+	controller := optionalID(r.FormValue("controller_id"))
+	if err := a.store.UpdateProject(id, name, strings.TrimSpace(r.FormValue("notes")), status, controller); err != nil {
 		a.fail(w, err, http.StatusInternalServerError)
+		return
+	}
+	a.store.Record(a.actor(r), "changed a project", "project", id, name+" · "+status)
+
+	// Moving to "building" is the moment the parts stop being available to
+	// anything else, so say so rather than leaving it to be discovered.
+	if status == "building" {
+		redirect(w, r, dest, "Saved — this project's parts are now reserved against your other projects", "")
 		return
 	}
 	redirect(w, r, dest, "Saved", "")

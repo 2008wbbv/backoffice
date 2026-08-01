@@ -1,0 +1,174 @@
+{{define "admin.html"}}
+{{template "top" .}}
+{{$d := .Data}}{{$h := $d.Health}}
+
+<nav class="crumb"><a href="/">Dashboard</a><span class="sep">/</span><span class="here">Health &amp; backup</span></nav>
+
+<div class="folder-head">
+  <h1>Health &amp; backup</h1>
+  <div class="folder-actions">
+    <a class="btn" href="/activity">Activity log</a>
+    {{if $d.CanEdit}}<a class="btn primary" href="/admin/backup.zip">Download backup</a>{{end}}
+  </div>
+</div>
+
+<div class="tiles">
+  <div class="tile"><b class="{{if $h.Healthy}}ok{{else}}warn{{end}}">{{if $h.Healthy}}healthy{{else}}check{{end}}</b><span>status</span></div>
+  <div class="tile"><b>{{$h.DatabaseSize}}</b><span>database</span></div>
+  <div class="tile"><b>{{$h.PhotoSize}}</b><span>{{$h.PhotoFiles}} photos</span></div>
+  {{if $h.DiskTotal}}<div class="tile"><b{{if gt $h.DiskPercent 90}} class="warn"{{end}}>{{$h.DiskFree}}</b><span>disk free</span></div>{{end}}
+  <div class="tile"><b>{{$h.Uptime}}</b><span>uptime</span></div>
+</div>
+
+<section class="panel-block">
+  <div class="section-head"><h2>This install</h2></div>
+  <dl class="facts wide">
+    <dt>Schema</dt>
+    <dd>version {{$h.SchemaVersion}} of {{$h.SchemaExpected}}
+      {{if ne $h.SchemaVersion $h.SchemaExpected}}<span class="warn"> — migrations have not finished</span>{{end}}</dd>
+    <dt>Integrity check</dt>
+    <dd class="{{if ne $h.Integrity "ok"}}warn{{end}}">{{$h.Integrity}}</dd>
+    <dt>Data directory</dt><dd>{{$h.DataDir}}</dd>
+    <dt>Write-ahead log</dt><dd>{{$h.WALSize}}</dd>
+    <dt>Sign-in</dt><dd>{{$h.AuthMode}}</dd>
+    <dt>URL imports</dt><dd>{{$h.FetchMode}}</dd>
+    <dt>Part search</dt>
+    <dd>{{if $h.Sources}}{{range $i, $s := $h.Sources}}{{if $i}}, {{end}}{{$s}}{{end}}{{else}}nothing configured{{end}}</dd>
+    <dt>Octopart</dt><dd>{{if $h.Octopart}}configured{{else}}not configured — set NEXAR_CLIENT_ID and NEXAR_CLIENT_SECRET{{end}}</dd>
+    <dt>Public address</dt><dd>{{if $h.BaseURL}}{{$h.BaseURL}}{{else}}taken from each request (set BASE_URL if QR codes point at the wrong host){{end}}</dd>
+  </dl>
+
+  <dl class="facts wide">
+    <dt>Rows</dt>
+    <dd>{{$h.Items}} items · {{$h.Photos}} photos · {{$h.Folders}} folders · {{$h.Projects}} projects
+      · {{$h.Prices}} prices · {{$h.Refs}} references · {{$h.Users}} accounts · {{$h.AuditRows}} audit entries</dd>
+    <dt>Photo files</dt><dd>{{$h.PhotoFiles}} originals, {{$h.ThumbFiles}} thumbnails</dd>
+  </dl>
+
+  {{if $h.Missing}}
+  <div class="toast bad inline">
+    <b>{{len $h.Missing}} photo{{if ne (len $h.Missing) 1}}s are{{else}} is{{end}} referenced but missing from disk.</b>
+    Restoring a backup, or copying the data directory without the photos folder, does this.
+  </div>
+  {{end}}
+  {{if $h.Orphans}}
+  <div class="toast inline">
+    <b>{{len $h.Orphans}} photo file{{if ne (len $h.Orphans) 1}}s{{end}} nothing points at.</b>
+    Harmless, but they take up {{$h.PhotoSize}} between them and the rest.
+    {{if $d.CanEdit}}
+    <form method="post" action="/admin/sweep" data-confirm="Delete {{len $h.Orphans}} photo files nothing refers to?">
+      <button class="btn tiny" type="submit">Sweep them</button>
+    </form>
+    {{end}}
+  </div>
+  {{end}}
+
+  <div class="actions">
+    <form method="post" action="/admin/thumbs"><button class="btn" type="submit">Rebuild missing thumbnails</button></form>
+    {{if $d.CanEdit}}
+    <form method="post" action="/admin/prune">
+      <input type="hidden" name="days" value="90">
+      <button class="btn" type="submit">Prune audit entries over 90 days</button>
+    </form>
+    {{end}}
+  </div>
+</section>
+
+<section class="panel-block">
+  <div class="section-head"><h2>Backup</h2></div>
+  <p class="muted">A backup is one zip holding a consistent snapshot of the database and every photo.
+    Restoring replaces everything currently here — it is not a merge.</p>
+
+  {{if $d.CanEdit}}
+  <div class="actions">
+    <a class="btn primary" href="/admin/backup.zip">Download backup</a>
+  </div>
+
+  <form class="restore" method="post" action="/admin/restore" enctype="multipart/form-data"
+        data-confirm="Restore from this backup? Everything currently in this install is replaced.">
+    <label class="field">
+      <span>Restore from a backup <em>a backup from an older version is upgraded on the way in</em></span>
+      <input type="file" name="backup" accept=".zip,application/zip" required>
+    </label>
+    <label class="field">
+      <span>Type <code>replace</code> to confirm</span>
+      <input name="confirm" placeholder="replace" autocomplete="off" required>
+    </label>
+    <button class="btn danger" type="submit">Restore</button>
+  </form>
+  {{else}}
+  <p class="muted">Only an administrator can download or restore a backup.</p>
+  {{end}}
+</section>
+
+<section class="panel-block">
+  <div class="section-head"><h2>Accounts</h2></div>
+  {{if $d.Users}}
+  <ul class="rows">
+    {{range $d.Users}}
+    <li>
+      <span class="row-item">
+        <span class="noimg tiny">{{initials .Username}}</span>
+        <span class="row-name">{{.Username}}</span>
+        {{if .Admin}}<span class="chip xs">administrator</span>{{end}}
+        {{if $d.Me}}{{if eq $d.Me.ID .ID}}<span class="chip xs on">you</span>{{end}}{{end}}
+        <span class="muted">{{if .LastSeen.IsZero}}never signed in{{else}}last seen {{since .LastSeen}}{{end}}</span>
+      </span>
+      <details class="inline-form">
+        <summary class="btn tiny">Edit</summary>
+        <form method="post" action="/users/{{.ID}}">
+          <input type="password" name="password" placeholder="New password" autocomplete="new-password">
+          {{if $d.CanEdit}}
+          <select name="role">
+            <option value="">Leave role as it is</option>
+            <option value="admin">Administrator</option>
+            <option value="member">Member</option>
+          </select>
+          {{end}}
+          <button class="btn" type="submit">Save</button>
+        </form>
+      </details>
+      {{if $d.CanEdit}}
+      <form method="post" action="/users/{{.ID}}/delete" data-confirm="Remove the account “{{.Username}}”?">
+        <button class="btn tiny danger" type="submit" aria-label="Remove {{.Username}}">×</button>
+      </form>
+      {{end}}
+    </li>
+    {{end}}
+  </ul>
+  {{else}}
+  <p class="muted">No accounts yet. With none, the shared password (or no password at all) is what
+    the door uses, and the activity log can only say <em>someone</em>. Add one and sign-in starts
+    asking for a username.</p>
+  {{end}}
+
+  {{if $d.CanEdit}}
+  <form class="price-add" method="post" action="/users">
+    <input name="username" placeholder="Username" autocomplete="off" required>
+    <input type="password" name="password" placeholder="Password (8+ characters)" autocomplete="new-password" required>
+    <label class="inline-check"><input type="checkbox" name="admin" value="1"> Administrator</label>
+    <button class="btn" type="submit">Add account</button>
+  </form>
+  {{end}}
+</section>
+
+{{if $d.Recent}}
+<section class="panel-block">
+  <div class="section-head"><h2>Latest activity</h2><a class="chip sm" href="/activity">All of it</a></div>
+  <ul class="rows">
+    {{range $d.Recent}}
+    <li>
+      <span class="row-item">
+        <span class="row-name">{{.Actor}}</span>
+        <span class="muted">{{.Action}}{{if .Detail}} — {{.Detail}}{{end}}</span>
+      </span>
+      {{if .Link}}<a class="chip sm" href="{{.Link}}">Open</a>{{end}}
+      <span class="muted">{{since .At}}</span>
+    </li>
+    {{end}}
+  </ul>
+</section>
+{{end}}
+
+{{template "bottom" .}}
+{{end}}

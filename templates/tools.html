@@ -1,0 +1,84 @@
+{{define "tools.html"}}
+{{template "top" .}}
+{{$d := .Data}}
+
+<nav class="crumb"><a href="/">Dashboard</a><span class="sep">/</span><span class="here">Calculators</span></nav>
+
+<div class="folder-head">
+  <h1>Bench calculators</h1>
+</div>
+<p class="muted page-sub">The sums you would otherwise do on your phone. When the answer is a
+  component value, it is checked against what is already on your shelf.</p>
+
+<div class="calc-grid">
+  {{range $c := $d.Calculators}}
+  <section class="calc{{if $d.IsActive $c.Key}} open{{end}}" id="{{$c.Key}}">
+    <h2>{{$c.Name}}</h2>
+    <p class="muted">{{$c.Blurb}}</p>
+
+    <form method="get" action="/tools">
+      <input type="hidden" name="calc" value="{{$c.Key}}">
+      <div class="calc-fields">
+        {{range $in := $c.Inputs}}
+        <label class="field">
+          <span>{{$in.Label}}{{if $in.Unit}} <em>{{$in.Unit}}</em>{{end}}</span>
+          {{if $in.Options}}
+            <select name="{{$in.Key}}">
+              {{range $opt := $in.Options}}
+              <option value="{{$opt}}"{{if and ($d.IsActive $c.Key) (eq ($d.Values $in.Key) $opt)}} selected{{end}}>{{$opt}}</option>
+              {{end}}
+            </select>
+          {{else}}
+            <input name="{{$in.Key}}" inputmode="decimal" autocomplete="off"
+                   placeholder="{{$in.Placeholder}}"
+                   value="{{if $d.IsActive $c.Key}}{{$d.Values $in.Key}}{{end}}">
+          {{end}}
+        </label>
+        {{end}}
+      </div>
+      <button class="btn primary" type="submit">Work it out</button>
+    </form>
+
+    {{if $d.IsActive $c.Key}}
+      {{if $d.Error}}
+        <div class="toast bad inline">{{$d.Error}}</div>
+      {{else if $d.Result}}
+        {{$r := $d.Result}}
+        <div class="calc-result">
+          <b class="calc-headline">{{$r.Headline}}</b>
+          <dl class="facts">
+            {{range $r.Rows}}<dt>{{.Label}}</dt><dd>{{.Value}}</dd>{{end}}
+          </dl>
+          {{range $r.Warnings}}<p class="calc-warn">⚠ {{.}}</p>{{end}}
+
+          {{if $r.Matches}}
+          <div class="calc-stock">
+            <h3>You already own</h3>
+            <ul class="rows">
+              {{range $r.Matches}}
+              <li>
+                <a class="row-item" href="/items/{{.Item.ID}}">
+                  {{if .Item.Thumb}}<img src="/media/thumb/{{.Item.Thumb}}" alt="" loading="lazy">
+                  {{else}}<span class="noimg tiny">{{initials .Item.Name}}</span>{{end}}
+                  <span class="row-name">{{.Item.Name}}</span>
+                  <span class="muted">{{.Item.Value}} · {{.Off}}</span>
+                  {{if .Item.Location}}<span class="muted row-loc">{{.Item.Location}}</span>{{end}}
+                </a>
+                <span class="row-qty{{if eq .Item.Available 0}} zero{{end}}">{{.Item.Available}}</span>
+              </li>
+              {{end}}
+            </ul>
+          </div>
+          {{else if $r.Target}}
+          <p class="muted calc-stock">Nothing on the shelf is within 10% of that value.
+            <a href="/items/new?name={{$r.Headline}}">Add one</a>.</p>
+          {{end}}
+        </div>
+      {{end}}
+    {{end}}
+  </section>
+  {{end}}
+</div>
+
+{{template "bottom" .}}
+{{end}}

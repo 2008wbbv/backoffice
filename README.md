@@ -180,6 +180,71 @@ the question you actually have: **what am I still missing?**
   same interfaces as what's already on the list — a nudge toward the level
   shifter you forgot you had, not a shopping recommendation.
 - Stock changes are picked up live: restock a part and its line clears itself.
+- **Shopping list** exports just the shortfall as CSV.
+
+### Reserving stock, and taking it
+
+Set a project's status to **building** and its parts are reserved. Nothing moves
+on the shelf — the count stays what it is — but every *other* project now sees
+what's left rather than what's there:
+
+> 3 pieces committed across 2 projects, you own 2
+
+That's the case worth catching: two projects that each look satisfied on their
+own page, and between them need more than you have. Contested lines say who else
+is holding the part instead of just reading as "buy more".
+
+**Mark built & take the parts** is the one action that changes stock without you
+asking item by item, so it's a button rather than a side effect of a status
+change. It deducts exactly what the list calls for, records what it actually
+took, and **Put the parts back** returns precisely that — not what the parts list
+says today, which may have changed since.
+
+A line the shelf can't cover is deducted down to zero rather than driving stock
+negative, and the shortfall is reported.
+
+### Bills of materials
+
+**Import a BOM** on a project reads a CSV from KiCad, EasyEDA, Altium or a
+spreadsheet. Column names are matched by meaning, not position (`Qnty`, `Qty`,
+`Quantity`; `Ref`, `Designator`, `RefDes`; `MPN`, `Part Number`, …), the preamble
+KiCad writes above the header is skipped, and semicolon- and tab-separated files
+work too. A bare `name,quantity` list pasted in a hurry also works.
+
+Lines are matched against your inventory by part number first, then name, then
+value — and `4700`, `4.7k` and `4k7` are recognised as the same resistor. **The
+import shows you what it understood before it writes anything**, including how
+each line matched, because a BOM silently pointed at the wrong part is worse than
+one that is honestly blank.
+
+Unmatched lines are kept by name and turn up in the shortfall list as things to
+buy. **Export BOM** writes the list back out with what's on the shelf and what's
+short, and reads back into this same importer.
+
+### Pin budget
+
+Give a project a **controller** — the board everything else hangs off — and it
+works out whether that board actually has enough legs.
+
+Demand comes from the interfaces already recorded against each part: I2C costs
+two pins no matter how many sensors share it, SPI costs three plus a chip select
+each, a UART costs a pair per device, PWM and ADC cost one each. Capacity is read
+out of the controller's own specifications (a `GPIO: 24` line); when the board
+doesn't say, the page says it doesn't know rather than inventing a number.
+
+It also flags the two mistakes that cost an afternoon:
+
+- **Duplicate I2C addresses** — two parts whose specs claim `0x76` can't both be
+  on the bus. Parts listing several addresses are treated as jumper-selectable
+  and aren't reported.
+- **Logic level mismatches** — a 5 V part hung off a 3.3 V board, with a nudge
+  towards a level shifter.
+
+### Build log
+
+A dated notebook per project: what you did, what it measured, which pin you got
+wrong the first time. Entries take photos, and are attributed to whoever wrote
+them once accounts exist.
 
 ### IO and interfaces
 
@@ -313,6 +378,25 @@ three-column grid on white, and labels never break across pages.
   it imports; drag an image file and it goes into the photo picker.
 - **Keyboard** — `/` focuses search, `n` opens the add form.
 - **CSV** — the `CSV` button exports the full inventory, folders and tags included.
+- **Reorder at** — each item has its own low-stock line, set on its edit page.
+  Two Raspberry Pis is plenty; two 0805 resistors is nothing. The dashboard's
+  *Running low* list measures **free** stock, so parts reserved by a build in
+  progress count against you.
+
+### Calculators
+
+**Calculators** in the header holds the sums you'd otherwise do on your phone:
+LED series resistor, resistor divider, RC filter, PCB trace width (IPC-2221),
+Ohm's law, linear regulator heat, battery life.
+
+Every answer that lands on a component value is then checked against your own
+shelf — "you already own a 330R, 10% off, in Drawer 3" — which is the part a
+website calculator can't do. Values are rounded to the nearest E24 part you can
+actually buy, and inputs accept engineering notation (`4k7`, `100n`, `220R`)
+wherever a plain number works.
+
+Each calculator is a plain GET form: the answer is in the URL, so it can be
+bookmarked or shared, and none of it needs JavaScript.
 
 Everything works without JavaScript except the link import, which needs it. JS
 otherwise only upgrades the count buttons to update in place, and adds
@@ -326,21 +410,65 @@ reachable from anywhere untrusted. The session cookie is HMAC-signed with a key
 generated on first run and stored at `$DATA_DIR/session.key`; deleting that file
 signs everyone out.
 
-## Backups
+### Accounts
 
-Copy `data/`. It holds `inventory.db` (plus its WAL sidecar files), `photos/`, and
-`session.key`. Nothing else is stored anywhere.
+Named accounts are optional and sit on top of that rather than replacing it. With
+no accounts, nothing changes: the shared password (or no password) is the whole
+door, and the activity log can only say *someone*.
 
-To snapshot the database safely while the app is running:
+Add one under **Health & backup** and sign-in starts asking for a username,
+sessions carry who you are, and every change is attributed. The first account is
+always an administrator — an install with only members could never manage itself
+— and the last administrator can't be deleted or demoted. Anyone can change their
+own password; only an administrator can add accounts, hand out administrator
+rights, or restore a backup.
 
-```sh
-sqlite3 data/inventory.db ".backup 'backup.db'"
-```
+Passwords are stored as PBKDF2-HMAC-SHA256 with 210,000 iterations and a random
+salt per password, in a self-describing format so the iteration count can be
+raised later without invalidating anyone's password.
+
+## Health and backups
+
+**Health & backup** (the ⚙ in the header) is the operator's page: schema version,
+a SQLite integrity check, database and photo sizes, free disk, row counts, and
+what the install is actually configured to do — how the door works, whether URL
+imports may reach the LAN, which shops are searched, whether Octopart has
+credentials.
+
+It also reports **photo drift** both ways: files on disk nothing points at
+(harmless, sweepable) and rows pointing at files that are gone (worth knowing
+about). Missing thumbnails can be rebuilt from the originals.
+
+**Download backup** gives you one zip holding a consistent snapshot of the
+database — taken with `VACUUM INTO`, not a copy of a file being written to — and
+every photo.
+
+**Restore** replaces everything currently in the install; it is not a merge, and
+it wants you to type `replace` to confirm. It works by attaching the backup as a
+second database and copying it table by table inside a single transaction, so the
+app doesn't need restarting, a failure halfway through rolls back to what was
+there before, and a backup taken several versions ago is migrated forward on the
+way in. Thumbnails are regenerated afterwards, since a backup only carries the
+originals.
+
+You can still just copy `data/` if you'd rather. It holds `inventory.db` (plus its
+WAL sidecar files), `photos/`, and `session.key`. Nothing else is stored anywhere.
+The session key deliberately lives outside the database, which is why restoring a
+backup doesn't sign you out.
+
+## Activity log
+
+Every change to an item, a project or an account is recorded with who, what, when
+and enough detail to recognise it — including changes that go through the +/−
+buttons. **Activity** filters by kind and links back to whatever was touched.
+Entries older than 90 days can be pruned from the admin page.
 
 ## Development
 
 ```sh
-go test ./...     # store, search, tags, folders, prices, photos, EXIF, SSRF, HTTP
+go test ./...     # store, search, tags, folders, prices, photos, EXIF, SSRF, HTTP,
+                  # reservations, BOM parsing, calculators, pin budget, backup/restore,
+                  # accounts, and the upgrade path from an older schema
 go vet ./...
 ```
 

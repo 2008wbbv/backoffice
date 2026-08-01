@@ -52,6 +52,10 @@
       <input name="quantity" type="number" min="0" step="1" value="{{$it.Quantity}}">
     </label>
     <label class="field">
+      <span>Reorder at <em>how few is “running low” for this part</em></span>
+      <input name="low_stock" type="number" min="0" step="1" value="{{$it.LowStock}}">
+    </label>
+    <label class="field">
       <span>Folder</span>
       <select name="folder_id">
         <option value="">— none —</option>

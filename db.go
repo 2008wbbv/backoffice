@@ -25,6 +25,7 @@ type Item struct {
 	Link       string
 	Notes      string
 	FolderID   *int64
+	LowStock   int // reorder when free stock reaches this
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 
@@ -35,6 +36,7 @@ type Item struct {
 	Interfaces []string
 	Specs      []Spec
 	Refs       []Reference
+	Claims     []Commitment // projects being built that have spoken for this
 }
 
 // Pinouts are the references worth showing as pictures on the item page.
@@ -236,14 +238,14 @@ func openDB(path string) (*sql.DB, error) {
 }
 
 const itemCols = `i.id, i.name, i.category, i.quantity, i.location, i.part_number,
-	i.value, i.link, i.notes, i.folder_id, i.created_at, i.updated_at,
+	i.value, i.link, i.notes, i.folder_id, i.low_stock, i.created_at, i.updated_at,
 	COALESCE(f.name, '')`
 
 func scanItem(s interface{ Scan(...any) error }) (Item, error) {
 	var it Item
 	var created, updated string
 	err := s.Scan(&it.ID, &it.Name, &it.Category, &it.Quantity, &it.Location,
-		&it.PartNumber, &it.Value, &it.Link, &it.Notes, &it.FolderID,
+		&it.PartNumber, &it.Value, &it.Link, &it.Notes, &it.FolderID, &it.LowStock,
 		&created, &updated, &it.FolderName)
 	if err != nil {
 		return it, err
@@ -461,7 +463,7 @@ func (s *Store) ListItems(q Query) ([]Item, error) {
 		return nil, err
 	}
 	for _, attach := range []func([]Item, map[int64]int) error{
-		s.attachTags, s.attachPrices, s.attachInterfaces,
+		s.attachTags, s.attachPrices, s.attachInterfaces, s.attachClaims,
 	} {
 		if err := attach(items, byID); err != nil {
 			return nil, err
@@ -549,7 +551,7 @@ func (s *Store) GetItem(id int64) (Item, error) {
 	// The detail page is the only place specs and references are shown, so
 	// they are loaded here rather than on every grid render.
 	for _, attach := range []func([]Item, map[int64]int) error{
-		s.attachTags, s.attachPrices, s.attachInterfaces,
+		s.attachTags, s.attachPrices, s.attachInterfaces, s.attachClaims,
 		s.attachSpecs, s.attachRefs,
 	} {
 		if err := attach(items, byID); err != nil {
@@ -569,10 +571,10 @@ func (s *Store) CreateItem(it Item) (int64, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	res, err := tx.Exec(`INSERT INTO items
 		(name, category, quantity, location, part_number, value, link, notes,
-		 folder_id, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		 folder_id, low_stock, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
 		it.Name, it.Category, it.Quantity, it.Location, it.PartNumber,
-		it.Value, it.Link, it.Notes, it.FolderID, now, now)
+		it.Value, it.Link, it.Notes, it.FolderID, max(it.LowStock, 0), now, now)
 	if err != nil {
 		return 0, err
 	}
@@ -601,10 +603,10 @@ func (s *Store) UpdateItem(it Item) error {
 
 	_, err = tx.Exec(`UPDATE items SET
 		name=?, category=?, quantity=?, location=?, part_number=?,
-		value=?, link=?, notes=?, folder_id=?, updated_at=?
+		value=?, link=?, notes=?, folder_id=?, low_stock=?, updated_at=?
 		WHERE id=?`,
 		it.Name, it.Category, it.Quantity, it.Location, it.PartNumber,
-		it.Value, it.Link, it.Notes, it.FolderID,
+		it.Value, it.Link, it.Notes, it.FolderID, max(it.LowStock, 0),
 		time.Now().UTC().Format(time.RFC3339), it.ID)
 	if err != nil {
 		return err

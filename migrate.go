@@ -298,6 +298,84 @@ CREATE INDEX idx_project_parts ON project_parts(project_id);
 			return nil
 		},
 	},
+	{
+		name: "stock reservations and low-stock thresholds",
+		sql: `
+-- How few is "running low" depends on the part: two Raspberry Pis is plenty,
+-- two 0805 resistors is nothing. 2 matches the figure that used to be hardcoded.
+ALTER TABLE items ADD COLUMN low_stock INTEGER NOT NULL DEFAULT 2;
+
+-- A project that has been built has taken its parts off the shelf. The moment
+-- it did is recorded so the deduction happens exactly once and can be undone.
+ALTER TABLE projects ADD COLUMN consumed_at TEXT NOT NULL DEFAULT '';
+
+-- What each project actually took, so returning the parts puts back what was
+-- taken rather than what the bill of materials says today.
+CREATE TABLE project_consumption (
+	project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+	item_id    INTEGER NOT NULL REFERENCES items(id)    ON DELETE CASCADE,
+	quantity   INTEGER NOT NULL,
+	PRIMARY KEY (project_id, item_id)
+);
+`,
+	},
+	{
+		name: "build log",
+		sql: `
+-- A dated notebook per project: what you did, what went wrong, photos of it.
+CREATE TABLE log_entries (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+	body       TEXT    NOT NULL DEFAULT '',
+	author     TEXT    NOT NULL DEFAULT '',
+	created_at TEXT    NOT NULL
+);
+CREATE INDEX idx_log_entries ON log_entries(project_id, created_at);
+
+CREATE TABLE log_photos (
+	id       INTEGER PRIMARY KEY AUTOINCREMENT,
+	entry_id INTEGER NOT NULL REFERENCES log_entries(id) ON DELETE CASCADE,
+	filename TEXT    NOT NULL,
+	position INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_log_photos ON log_photos(entry_id, position);
+`,
+	},
+	{
+		name: "project controller",
+		// The board everything else hangs off, so pin demand has something to be
+		// measured against. NULL default is what makes ADD COLUMN with a foreign
+		// key legal in SQLite.
+		sql: `ALTER TABLE projects ADD COLUMN controller_id INTEGER REFERENCES items(id) ON DELETE SET NULL;`,
+	},
+	{
+		name: "users and audit trail",
+		sql: `
+-- Optional: with no rows here the single shared password still works, which
+-- keeps a one-person install at zero configuration.
+CREATE TABLE users (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	username   TEXT    NOT NULL COLLATE NOCASE UNIQUE,
+	password   TEXT    NOT NULL,
+	admin      INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT    NOT NULL,
+	last_seen  TEXT    NOT NULL DEFAULT ''
+);
+
+-- Who changed what. Append-only: nothing in the app deletes from it except the
+-- explicit prune on the admin page.
+CREATE TABLE audit (
+	id        INTEGER PRIMARY KEY AUTOINCREMENT,
+	at        TEXT    NOT NULL,
+	actor     TEXT    NOT NULL DEFAULT '',
+	action    TEXT    NOT NULL,
+	entity    TEXT    NOT NULL DEFAULT '',
+	entity_id INTEGER NOT NULL DEFAULT 0,
+	detail    TEXT    NOT NULL DEFAULT ''
+);
+CREATE INDEX idx_audit_at ON audit(at DESC, id DESC);
+`,
+	},
 }
 
 func migrate(db *sql.DB) error {

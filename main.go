@@ -82,6 +82,14 @@ type App struct {
 	auth    *Auth
 	fetcher *Fetcher
 	search  *SearchHub
+	started time.Time
+}
+
+// sessionKeyPath is where the HMAC key for sessions lives. It is needed after
+// startup too, for the case where the first account is created on an install
+// that never had a password.
+func (a *App) sessionKeyPath() string {
+	return filepath.Join(a.cfg.DataDir, "session.key")
 }
 
 func main() {
@@ -101,7 +109,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("photo store: %v", err)
 	}
-	auth, err := NewAuth(cfg.Password, filepath.Join(cfg.DataDir, "session.key"))
+	store := &Store{db: db}
+	auth, err := NewAuth(cfg.Password, filepath.Join(cfg.DataDir, "session.key"), store)
 	if err != nil {
 		log.Fatalf("auth: %v", err)
 	}
@@ -109,12 +118,13 @@ func main() {
 	fetcher := NewFetcher(cfg.AllowPrivate)
 	app := &App{
 		cfg:     cfg,
-		store:   &Store{db: db},
+		store:   store,
 		photos:  photos,
 		tmpl:    mustTemplates(),
 		auth:    auth,
 		fetcher: fetcher,
 		search:  NewSearchHub(fetcher, cfg),
+		started: time.Now(),
 	}
 
 	srv := &http.Server{
@@ -127,7 +137,10 @@ func main() {
 
 	go func() {
 		mode := "open (no password set)"
-		if auth.Enabled() {
+		switch {
+		case auth.Accounts():
+			mode = "named accounts"
+		case auth.Enabled():
 			mode = "password protected"
 		}
 		fetch := "public hosts only"
@@ -221,6 +234,34 @@ func (a *App) routes() http.Handler {
 	protected.HandleFunc("POST /items/quick", a.handleQuickAdd)
 	protected.HandleFunc("GET /items/search.json", a.handleLiveSearch)
 
+	// Building a project: reserve the parts, then take them off the shelf.
+	protected.HandleFunc("POST /projects/{id}/consume", a.handleConsumeProject)
+	protected.HandleFunc("POST /projects/{id}/return", a.handleReturnProject)
+
+	// Bills of materials, in and out.
+	protected.HandleFunc("POST /projects/{id}/bom", a.handleImportBOM)
+	protected.HandleFunc("GET /projects/{id}/bom.csv", a.handleExportBOM)
+	protected.HandleFunc("GET /projects/{id}/shopping-list.csv", a.handleShortfallCSV)
+
+	// The lab notebook.
+	protected.HandleFunc("POST /projects/{id}/log", a.handleAddLogEntry)
+	protected.HandleFunc("POST /log/{id}/delete", a.handleDeleteLogEntry)
+
+	// Bench calculators, wired to what is on the shelf.
+	protected.HandleFunc("GET /tools", a.handleTools)
+
+	// Health, backup, accounts and the audit trail.
+	protected.HandleFunc("GET /admin", a.handleAdmin)
+	protected.HandleFunc("GET /admin/backup.zip", a.handleBackup)
+	protected.HandleFunc("POST /admin/restore", a.handleRestore)
+	protected.HandleFunc("POST /admin/sweep", a.handleSweep)
+	protected.HandleFunc("POST /admin/thumbs", a.handleRebuildThumbs)
+	protected.HandleFunc("POST /admin/prune", a.handlePruneAudit)
+	protected.HandleFunc("POST /users", a.handleCreateUser)
+	protected.HandleFunc("POST /users/{id}", a.handleUpdateUser)
+	protected.HandleFunc("POST /users/{id}/delete", a.handleDeleteUser)
+	protected.HandleFunc("GET /activity", a.handleActivity)
+
 	// Look a part up by name, or read a URL the person pasted.
 	protected.HandleFunc("POST /import/search", a.handleSearch)
 	protected.HandleFunc("POST /import/preview", a.handleImportPreview)
@@ -298,6 +339,12 @@ func templateFuncs() template.FuncMap {
 		},
 		"ioIcon": IconForInterface,
 		"slice":  func(v ...string) []string { return v },
+
+		// bomCSV renders a parsed bill of materials back into the canonical CSV
+		// this app's own importer reads. The review step posts that instead of
+		// keeping the upload in server-side state, so confirming re-parses and
+		// re-matches exactly what was shown.
+		"bomCSV": bomCSV,
 		"hasTag": func(q Query, tag string) bool {
 			for _, t := range q.Tags {
 				if strings.EqualFold(t, tag) {

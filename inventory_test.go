@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func newTestApp(t *testing.T) *App {
@@ -32,16 +33,18 @@ func newTestApp(t *testing.T) *App {
 	if err != nil {
 		t.Fatalf("NewPhotoStore: %v", err)
 	}
-	auth, err := NewAuth("", filepath.Join(dir, "session.key"))
+	store := &Store{db: db}
+	auth, err := NewAuth("", filepath.Join(dir, "session.key"), store)
 	if err != nil {
 		t.Fatalf("NewAuth: %v", err)
 	}
 	return &App{
 		cfg:     Config{DataDir: dir, Title: "Backoffice"},
-		store:   &Store{db: db},
+		store:   store,
 		photos:  photos,
 		tmpl:    mustTemplates(),
 		auth:    auth,
+		started: time.Now(),
 		fetcher: NewFetcher(true), // tests serve fixtures from loopback
 		// No shops by default: a unit test should not reach the internet.
 		search: &SearchHub{},
@@ -413,7 +416,7 @@ func TestQuantityEndpointAnswersJSON(t *testing.T) {
 
 func TestAuthGatesEverythingButLoginAndHealth(t *testing.T) {
 	app := newTestApp(t)
-	auth, err := NewAuth("hunter2", filepath.Join(app.cfg.DataDir, "session.key"))
+	auth, err := NewAuth("hunter2", filepath.Join(app.cfg.DataDir, "session.key"), app.store)
 	if err != nil {
 		t.Fatalf("NewAuth: %v", err)
 	}

@@ -1,6 +1,6 @@
 {{define "project.html"}}
 {{template "top" .}}
-{{$d := .Data}}{{$p := $d.Project}}
+{{$d := .Data}}{{$p := $d.Project}}{{$pins := $d.Pins}}
 
 <nav class="crumb"><a href="/">Dashboard</a><span class="sep">/</span><a href="/projects">Projects</a>
   <span class="sep">/</span><span class="here">{{$p.Name}}</span></nav>
@@ -8,21 +8,29 @@
 <div class="folder-head">
   <h1>{{$p.Name}}</h1>
   <div class="folder-actions">
+    <a class="btn ghost" href="/projects/{{$p.ID}}/bom.csv">Export BOM</a>
+    {{if $p.Shortfall}}<a class="btn ghost" href="/projects/{{$p.ID}}/shopping-list.csv">Shopping list</a>{{end}}
     <details class="inline-form">
       <summary class="btn">Settings</summary>
+      <div class="pop">
       <form method="post" action="/projects/{{$p.ID}}">
         <input name="name" value="{{$p.Name}}" required>
         <input name="notes" value="{{$p.Notes}}" placeholder="Notes">
-        <select name="status">
-          {{range $s := slice "planning" "building" "done" "shelved"}}
+        <select name="status"{{if $p.Consumed}} disabled{{end}}>
+          {{range $s := $d.Statuses}}
           <option value="{{$s}}"{{if eq $p.Status $s}} selected{{end}}>{{$s}}</option>
           {{end}}
+        </select>
+        <select name="controller_id">
+          <option value="">— no controller board —</option>
+          {{range $d.AllItems}}<option value="{{.ID}}"{{if eq $p.ControllerRef .ID}} selected{{end}}>{{.Name}}</option>{{end}}
         </select>
         <button class="btn" type="submit">Save</button>
       </form>
       <form method="post" action="/projects/{{$p.ID}}/delete" data-confirm="Delete the project “{{$p.Name}}”? Your parts are not touched.">
         <button class="btn danger" type="submit">Delete project</button>
       </form>
+      </div>
     </details>
   </div>
 </div>
@@ -34,18 +42,48 @@
   <div class="tile"><b{{if $p.Shortfall}} class="warn"{{end}}>{{len $p.Shortfall}}</b><span>still needed</span></div>
   {{if $p.EstimatedCost}}<div class="tile"><b>{{money $p.EstimatedCost}}</b><span>to buy (est.)</span></div>{{end}}
   <div class="tile"><b>{{$p.Status}}</b><span>status</span></div>
+  {{if and $pins.Controller $pins.Capacity}}
+  <div class="tile"><b{{if $pins.Over}} class="warn"{{end}}>{{$pins.Total}} / {{$pins.Capacity}}</b><span>pins used</span></div>
+  {{end}}
 </div>
+
+{{/* Reserving, and then actually taking, the parts. */}}
+<section class="panel-block stock-state">
+  {{if $p.Consumed}}
+    <div class="toast ok inline">
+      <b>Built.</b> These parts came off the shelf {{since $p.ConsumedAt}}.
+      <form method="post" action="/projects/{{$p.ID}}/return" data-confirm="Put this project's parts back on the shelf?">
+        <button class="btn tiny" type="submit">Put the parts back</button>
+      </form>
+    </div>
+  {{else if $p.Building}}
+    <div class="toast inline">
+      <b>Building.</b> Every part on this list is reserved — your other projects can see what is left, not what is on the shelf.
+      <form method="post" action="/projects/{{$p.ID}}/consume"
+            data-confirm="Take {{len $p.Parts}} lines' worth of parts off the shelf and mark this built?">
+        <button class="btn tiny primary" type="submit">Mark built &amp; take the parts</button>
+      </form>
+    </div>
+  {{else}}
+    <p class="muted">Status is <b>{{$p.Status}}</b>, so nothing here is reserved.
+      Set it to <b>building</b> in Settings and these parts stop counting as available elsewhere.</p>
+  {{end}}
+</section>
 
 {{if $p.Shortfall}}
 <section class="panel-block">
-  <div class="section-head"><h2>What you still need</h2></div>
+  <div class="section-head"><h2>What you still need</h2>
+    <a class="chip sm" href="/projects/{{$p.ID}}/shopping-list.csv">Download list</a></div>
   <ul class="rows">
     {{range $p.Shortfall}}
     <li>
       <span class="row-item">
         <span class="short-badge">{{.Short}}</span>
         <span class="row-name">{{.Label}}</span>
-        <span class="muted">have {{.Have}} of {{.Quantity}}</span>
+        <span class="muted">
+          {{if .Contested}}{{.Free}} free of {{.Have}} on the shelf — {{.RivalNote}}
+          {{else}}have {{.Have}} of {{.Quantity}}{{end}}
+        </span>
       </span>
       {{if .Item}}
         <a class="chip sm" href="/items/{{.Item.ID}}">Open</a>
@@ -60,12 +98,76 @@
 <div class="toast ok">Everything on this list is on the shelf.</div>
 {{end}}
 
+{{if $pins.Controller}}
 <section class="panel-block">
-  <div class="section-head"><h2>Parts list</h2></div>
+  <div class="section-head">
+    <h2>Pin budget</h2>
+    <span class="muted">against <a href="/items/{{$pins.Controller.ID}}">{{$pins.Controller.Name}}</a></span>
+  </div>
+
+  {{if $pins.Capacity}}
+  <div class="budget-bar{{if $pins.Over}} over{{end}}">
+    <span style="width: {{$pins.Percent}}%"></span>
+  </div>
+  <p class="muted">{{$pins.Total}} of {{$pins.Capacity}} pins spoken for
+    ({{$pins.CapacityFrom}}){{if not $pins.Over}} — {{$pins.Spare}} spare{{end}}.</p>
+  {{end}}
+
+  {{if $pins.Buses}}
+  <ul class="rows">
+    {{range $pins.Buses}}
+    <li>
+      <span class="row-item">
+        <span class="chip xs">{{ioIcon .Name}} {{.Name}}</span>
+        <span class="row-name">{{len .Devices}} device{{if ne (len .Devices) 1}}s{{end}}</span>
+        <span class="muted">{{.Note}} — {{range $i, $dev := .Devices}}{{if $i}}, {{end}}{{$dev}}{{end}}</span>
+      </span>
+      <span class="row-qty">{{.Pins}}</span>
+    </li>
+    {{end}}
+  </ul>
+  {{end}}
+
+  {{if $pins.Demands}}
+  <ul class="rows">
+    {{range $pins.Demands}}
+    <li>
+      <span class="row-item">
+        <a class="row-name" href="/items/{{.ItemID}}">{{.Part}}</a>
+        <span class="muted">{{.Detail}}</span>
+      </span>
+      <span class="row-qty">{{.Pins}}</span>
+    </li>
+    {{end}}
+  </ul>
+  {{end}}
+
+  {{range $pins.Conflicts}}<div class="toast bad inline">⚠ {{.}}</div>{{end}}
+  {{range $pins.Notes}}<p class="muted">{{.}}</p>{{end}}
+  {{if and (not $pins.Buses) (not $pins.Demands)}}
+  <p class="muted">Nothing on this list records what it speaks yet. Tick the interfaces on each
+    part's edit page — I2C, SPI, PWM and so on — and the budget fills itself in.</p>
+  {{end}}
+</section>
+{{end}}
+
+<section class="panel-block">
+  <div class="section-head">
+    <h2>Parts list</h2>
+    <details class="inline-form">
+      <summary class="btn">Import a BOM</summary>
+      <form method="post" action="/projects/{{$p.ID}}/bom" enctype="multipart/form-data" class="bom-form">
+        <textarea name="bom" rows="6" placeholder="Paste a KiCad, EasyEDA or spreadsheet BOM as CSV…"></textarea>
+        <input type="file" name="file" accept=".csv,.txt,text/csv,text/plain">
+        <label class="inline-check"><input type="checkbox" name="replace" value="1"> Replace the current list</label>
+        <button class="btn primary" type="submit">Read it</button>
+      </form>
+    </details>
+  </div>
   {{if $p.Parts}}
   <ul class="rows">
     {{range $p.Parts}}
-    <li>
+    <li{{if .Contested}} class="contested"{{end}}>
       <span class="row-item">
         {{if .Item}}
           {{if .Item.Thumb}}<img src="/media/thumb/{{.Item.Thumb}}" alt="" loading="lazy">
@@ -76,8 +178,9 @@
           <span class="row-name">{{.Label}} <span class="muted">(not in inventory)</span></span>
         {{end}}
         {{if .Note}}<span class="muted">{{.Note}}</span>{{end}}
+        {{if .Claimed}}<span class="muted claim">{{.RivalNote}}</span>{{end}}
       </span>
-      <span class="row-qty{{if not .Enough}} zero{{end}}">{{.Have}} / {{.Quantity}}</span>
+      <span class="row-qty{{if not .Enough}} zero{{end}}" title="{{.Free}} free of {{.Have}} on the shelf">{{.Free}} / {{.Quantity}}</span>
       <form method="post" action="/project-parts/{{.ID}}/delete">
         <button class="btn tiny danger" type="submit" aria-label="Remove {{.Label}}">×</button>
       </form>
@@ -91,12 +194,51 @@
   <form class="price-add" method="post" action="/projects/{{$p.ID}}/parts">
     <select name="item_id">
       <option value="">— a part you own —</option>
-      {{range $d.AllItems}}<option value="{{.ID}}">{{.Name}} ({{.Quantity}} in stock)</option>{{end}}
+      {{range $d.AllItems}}<option value="{{.ID}}">{{.Name}} ({{.Available}} free of {{.Quantity}})</option>{{end}}
     </select>
     <input name="name" placeholder="…or something you don't own yet">
     <input name="quantity" type="number" min="1" value="1" aria-label="Quantity needed">
     <button class="btn" type="submit">Add part</button>
   </form>
+</section>
+
+<section class="panel-block">
+  <div class="section-head"><h2>Build log</h2></div>
+  <form class="log-add" method="post" action="/projects/{{$p.ID}}/log" enctype="multipart/form-data">
+    <textarea name="body" rows="3" placeholder="What you did, what it measured, which pin you got wrong…"></textarea>
+    <div class="import-row">
+      <input type="file" name="photos" accept="image/*" multiple>
+      <button class="btn" type="submit">Add entry</button>
+    </div>
+  </form>
+
+  {{if $d.Log}}
+  <ol class="log-entries">
+    {{range $d.Log}}
+    <li>
+      <div class="log-head">
+        <b>{{.CreatedAt.Local.Format "2 Jan 2006, 15:04"}}</b>
+        {{if .Author}}<span class="muted">{{.Author}}</span>{{end}}
+        <form method="post" action="/log/{{.ID}}/delete" data-confirm="Delete this build-log entry?">
+          <button class="btn tiny danger" type="submit" aria-label="Delete entry">×</button>
+        </form>
+      </div>
+      {{if .Body}}<div class="log-body">{{range .Lines}}<p>{{.}}</p>{{end}}</div>{{end}}
+      {{if .Photos}}
+      <div class="strip">
+        {{range .Photos}}
+        <a class="shot" href="/media/{{.Filename}}" target="_blank" rel="noopener">
+          <img src="/media/thumb/{{.Filename}}" alt="" loading="lazy">
+        </a>
+        {{end}}
+      </div>
+      {{end}}
+    </li>
+    {{end}}
+  </ol>
+  {{else}}
+  <p class="muted">Nothing written down yet. Six months from now you will wish there were.</p>
+  {{end}}
 </section>
 
 {{if $d.Suggestions}}

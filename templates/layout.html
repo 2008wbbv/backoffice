@@ -15,9 +15,16 @@
   <nav>
     <a href="/items" class="btn ghost">Items</a>
     <a href="/projects" class="btn ghost">Projects</a>
+    <a href="/tools" class="btn ghost">Calculators</a>
     <a href="/labels" class="btn ghost">Labels</a>
+    <a href="/admin" class="btn ghost" title="Health, backup and accounts">⚙</a>
     <a href="/items/new" class="btn primary">+ Add item</a>
-    {{if .AuthOn}}<form method="post" action="/logout"><button class="btn ghost" type="submit">Sign out</button></form>{{end}}
+    {{if .AuthOn}}
+    <form method="post" action="/logout">
+      {{if .User}}<span class="whoami" title="Signed in as {{.User.Username}}">{{.User.Username}}</span>{{end}}
+      <button class="btn ghost" type="submit">Sign out</button>
+    </form>
+    {{end}}
   </nav>
   {{end}}
 </header>

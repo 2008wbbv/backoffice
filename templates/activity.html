@@ -1,0 +1,42 @@
+{{define "activity.html"}}
+{{template "top" .}}
+{{$d := .Data}}
+
+<nav class="crumb"><a href="/">Dashboard</a><span class="sep">/</span>
+  <a href="/admin">Health &amp; backup</a><span class="sep">/</span><span class="here">Activity</span></nav>
+
+<div class="folder-head">
+  <h1>Activity</h1>
+  <div class="folder-actions">
+    <a class="chip sm{{if not $d.Entries}} on{{end}}" href="/activity">Everything</a>
+    <a class="chip sm" href="/activity?entity=item">Items</a>
+    <a class="chip sm" href="/activity?entity=project">Projects</a>
+    <a class="chip sm" href="/activity?entity=user">Accounts</a>
+    <a class="chip sm" href="/activity?entity=system">System</a>
+  </div>
+</div>
+
+{{if $d.Entries}}
+<ul class="rows log">
+  {{range $d.Entries}}
+  <li>
+    <span class="row-item">
+      <span class="stamp">{{.At.Local.Format "2 Jan 15:04"}}</span>
+      <b class="row-name">{{.Actor}}</b>
+      <span>{{.Action}}</span>
+      {{if .Detail}}<span class="muted">{{.Detail}}</span>{{end}}
+    </span>
+    {{if .Link}}<a class="chip sm" href="{{.Link}}">Open</a>{{end}}
+  </li>
+  {{end}}
+</ul>
+<p class="muted">Showing the most recent {{$d.Limit}}.</p>
+{{else}}
+<div class="empty">
+  <p><strong>Nothing recorded yet.</strong></p>
+  <p class="muted">Every change to an item, a project or an account lands here from now on.</p>
+</div>
+{{end}}
+
+{{template "bottom" .}}
+{{end}}

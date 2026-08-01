@@ -32,6 +32,7 @@
         <button class="btn tiny" type="submit" aria-label="Remove one {{.Name}}">−</button>
       </form>
       <output class="n{{if eq .Quantity 0}} zero{{end}}">{{.Quantity}}</output>
+      {{if .Committed}}<span class="reserved" title="{{.ClaimNote}}">{{.Available}} free</span>{{end}}
       <form method="post" action="/items/{{.ID}}/quantity" class="step">
         <input type="hidden" name="delta" value="1">
         <button class="btn tiny" type="submit" aria-label="Add one {{.Name}}">+</button>

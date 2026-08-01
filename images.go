@@ -121,6 +121,34 @@ func (p *PhotoStore) writeThumb(raw []byte, name string) error {
 	return jpeg.Encode(f, out, &jpeg.Options{Quality: 82})
 }
 
+// RebuildThumbs regenerates any thumbnail that is missing. A backup only
+// carries the originals -- thumbnails are derived data and would double the
+// archive for nothing -- so a restore calls this to fill them back in.
+// Originals that Go cannot decode are skipped silently: the grid already falls
+// back to serving those full size.
+func (p *PhotoStore) RebuildThumbs() int {
+	names, err := p.Names()
+	if err != nil {
+		return 0
+	}
+	rebuilt := 0
+	for _, name := range names {
+		if _, err := os.Stat(p.ThumbPath(name)); err == nil {
+			continue
+		}
+		raw, err := os.ReadFile(p.Path(name))
+		if err != nil {
+			continue
+		}
+		if err := p.writeThumb(raw, name); err != nil {
+			os.Remove(p.ThumbPath(name))
+			continue
+		}
+		rebuilt++
+	}
+	return rebuilt
+}
+
 func (p *PhotoStore) Remove(name string) {
 	if !safeName.MatchString(name) {
 		return

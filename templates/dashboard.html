@@ -135,10 +135,14 @@
         <span class="row-name">{{.Name}}</span>
         {{if .Location}}<span class="muted row-loc">{{.Location}}</span>{{end}}
       </a>
-      <span class="row-qty{{if eq .Quantity 0}} zero{{end}}">{{.Quantity}}</span>
+      <span class="row-qty{{if eq .Available 0}} zero{{end}}"
+            title="{{if .Committed}}{{.ClaimNote}}{{else}}reorder line is {{.Threshold}}{{end}}">
+        {{.Available}}{{if .Committed}} <span class="muted">of {{.Quantity}}</span>{{end}}
+      </span>
     </li>
     {{end}}
   </ul>
+  <p class="muted">Each part has its own reorder line — set it on the part's edit page.</p>
 </section>
 {{end}}
 

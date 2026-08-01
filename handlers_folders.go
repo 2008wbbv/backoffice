@@ -40,7 +40,7 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err, http.StatusInternalServerError)
 		return
 	}
-	low, err := a.store.ListItems(Query{Sort: "low"})
+	low, err := a.store.LowStock(8)
 	if err != nil {
 		a.fail(w, err, http.StatusInternalServerError)
 		return
@@ -63,7 +63,7 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		Flat:     FlattenFolders(tree),
 		Stats:    stats,
 		Recent:   firstN(recent, 12),
-		LowStock: lowStock(low, 8),
+		LowStock: low,
 		Tags:     firstN(tags, 24),
 		Unfiled:  stats.Unfiled,
 	})
@@ -79,20 +79,6 @@ func firstN[T any](s []T, n int) []T {
 
 // lowStock keeps only the genuinely low items -- an inventory where nothing is
 // running out should show an empty panel, not its fullest shelves.
-func lowStock(sortedAsc []Item, n int) []Item {
-	var out []Item
-	for _, it := range sortedAsc {
-		if it.Quantity > 2 {
-			break
-		}
-		out = append(out, it)
-		if len(out) == n {
-			break
-		}
-	}
-	return out
-}
-
 // --- folder view ------------------------------------------------------------
 
 type folderData struct {

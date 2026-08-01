@@ -2,6 +2,8 @@ package main
 
 import (
 	"database/sql"
+	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -367,16 +369,38 @@ func PriceChanges(points []PricePoint) []PriceChange {
 
 // --- projects ---------------------------------------------------------------
 
+// ProjectStatuses are the states a build moves through. "building" is the one
+// with teeth: it reserves the parts on the bill of materials against every
+// other project.
+var ProjectStatuses = []string{"planning", "building", "done", "shelved"}
+
 // Project is a build you are planning, with the parts it calls for.
 type Project struct {
-	ID        int64
-	Name      string
-	Notes     string
-	Status    string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID           int64
+	Name         string
+	Notes        string
+	Status       string
+	ControllerID *int64 // the board everything else hangs off
+	ConsumedAt   time.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 
-	Parts []ProjectPart
+	Parts      []ProjectPart
+	Controller *Item
+}
+
+// Consumed means the parts have actually been taken off the shelf.
+func (p Project) Consumed() bool { return !p.ConsumedAt.IsZero() }
+
+// Building means this project is holding its parts against everything else.
+func (p Project) Building() bool { return p.Status == "building" && !p.Consumed() }
+
+// ControllerRef exists because html/template cannot dereference a *int64.
+func (p Project) ControllerRef() int64 {
+	if p.ControllerID == nil {
+		return 0
+	}
+	return *p.ControllerID
 }
 
 // ProjectPart is one line of a project's bill of materials. It either points at
@@ -390,6 +414,11 @@ type ProjectPart struct {
 
 	// Filled in when the line points at a real item.
 	Item *Item
+	// How many of that item other projects being built have claimed. This is
+	// what makes two projects that each look satisfied stop looking satisfied
+	// when between them they need more than you own.
+	Claimed int
+	Rival   []Commitment
 }
 
 // Label is what to call this line: the item's name when it is owned, otherwise
@@ -410,14 +439,40 @@ func (p ProjectPart) Have() int {
 	return p.Item.Quantity
 }
 
+// Free is how many this project can actually get its hands on: what is on the
+// shelf, less what other projects being built have already claimed.
+func (p ProjectPart) Free() int {
+	if n := p.Have() - p.Claimed; n > 0 {
+		return n
+	}
+	return 0
+}
+
 func (p ProjectPart) Short() int {
-	if n := p.Quantity - p.Have(); n > 0 {
+	if n := p.Quantity - p.Free(); n > 0 {
 		return n
 	}
 	return 0
 }
 
 func (p ProjectPart) Enough() bool { return p.Short() == 0 }
+
+// Contested means this line would be covered if another project were not
+// holding the same parts -- a different problem from simply not owning enough,
+// and one you fix by finishing a build rather than by ordering.
+func (p ProjectPart) Contested() bool { return p.Claimed > 0 && p.Quantity <= p.Have() && !p.Enough() }
+
+// RivalNote names who else is holding the part.
+func (p ProjectPart) RivalNote() string {
+	if len(p.Rival) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(p.Rival))
+	for _, c := range p.Rival {
+		names = append(names, fmt.Sprintf("%s (%d)", c.Project, c.Quantity))
+	}
+	return "also claimed by " + strings.Join(names, ", ")
+}
 
 // Shortfall is every line the shelf cannot currently cover -- the answer to
 // "what else do I need to buy".
@@ -467,9 +522,10 @@ func (p Project) Interfaces() []string {
 	return out
 }
 
+const projectCols = `id, name, notes, status, controller_id, consumed_at, created_at, updated_at`
+
 func (s *Store) ListProjects() ([]Project, error) {
-	rows, err := s.db.Query(`SELECT id, name, notes, status, created_at, updated_at
-		FROM projects ORDER BY updated_at DESC`)
+	rows, err := s.db.Query(`SELECT ` + projectCols + ` FROM projects ORDER BY updated_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -498,25 +554,46 @@ func (s *Store) ListProjects() ([]Project, error) {
 
 func scanProject(sc interface{ Scan(...any) error }) (Project, error) {
 	var p Project
-	var created, updated string
-	err := sc.Scan(&p.ID, &p.Name, &p.Notes, &p.Status, &created, &updated)
+	var consumed, created, updated string
+	err := sc.Scan(&p.ID, &p.Name, &p.Notes, &p.Status, &p.ControllerID,
+		&consumed, &created, &updated)
 	if err != nil {
 		return p, err
 	}
+	p.ConsumedAt, _ = time.Parse(time.RFC3339, consumed)
 	p.CreatedAt, _ = time.Parse(time.RFC3339, created)
 	p.UpdatedAt, _ = time.Parse(time.RFC3339, updated)
 	return p, nil
 }
 
 func (s *Store) GetProject(id int64) (Project, error) {
-	row := s.db.QueryRow(`SELECT id, name, notes, status, created_at, updated_at
-		FROM projects WHERE id = ?`, id)
+	row := s.db.QueryRow(`SELECT `+projectCols+` FROM projects WHERE id = ?`, id)
 	p, err := scanProject(row)
 	if err != nil {
 		return p, err
 	}
-	p.Parts, err = s.projectParts(id)
-	return p, err
+	if p.Parts, err = s.projectParts(id); err != nil {
+		return p, err
+	}
+	if p.ControllerID != nil {
+		// The controller is often on the bill of materials too, so reuse the
+		// copy already loaded rather than querying again.
+		for i := range p.Parts {
+			if p.Parts[i].Item != nil && p.Parts[i].Item.ID == *p.ControllerID {
+				p.Controller = p.Parts[i].Item
+			}
+		}
+		if p.Controller == nil {
+			it, err := s.GetItem(*p.ControllerID)
+			if err == nil {
+				p.Controller = &it
+			} else if !errors.Is(err, sql.ErrNoRows) {
+				return p, err
+			}
+			// A controller that has been deleted just leaves the budget empty.
+		}
+	}
+	return p, nil
 }
 
 // projectParts loads a bill of materials, resolving each line that points at
@@ -553,12 +630,32 @@ func (s *Store) projectParts(projectID int64) ([]ProjectPart, error) {
 		return nil, err
 	}
 	byID := map[int64]*Item{}
+	index := map[int64]int{}
 	for i := range items {
 		byID[items[i].ID] = &items[i]
+		index[items[i].ID] = i
+	}
+	// The grid does not need specifications, but a project does: the pin budget
+	// reads its capacity and its I2C addresses out of them.
+	if err := s.attachSpecs(items, index); err != nil {
+		return nil, err
 	}
 	for i := range parts {
-		if parts[i].ItemID != nil {
-			parts[i].Item = byID[*parts[i].ItemID]
+		if parts[i].ItemID == nil {
+			continue
+		}
+		it := byID[*parts[i].ItemID]
+		parts[i].Item = it
+		if it == nil {
+			continue
+		}
+		// Only *other* projects contend for the part: a project is not competing
+		// with itself for the parts it has listed.
+		for _, c := range it.Claims {
+			if c.ProjectID != projectID {
+				parts[i].Claimed += c.Quantity
+				parts[i].Rival = append(parts[i].Rival, c)
+			}
 		}
 	}
 	return parts, nil
@@ -574,9 +671,19 @@ func (s *Store) CreateProject(name, notes string) (int64, error) {
 	return res.LastInsertId()
 }
 
-func (s *Store) UpdateProject(id int64, name, notes, status string) error {
-	_, err := s.db.Exec(`UPDATE projects SET name=?, notes=?, status=?, updated_at=? WHERE id=?`,
-		name, notes, status, time.Now().UTC().Format(time.RFC3339), id)
+// UpdateProject saves the settings form. Moving a consumed project back to a
+// status other than done would leave its parts deducted with nothing saying so,
+// so consumed projects keep their status until the parts are returned.
+func (s *Store) UpdateProject(id int64, name, notes, status string, controllerID *int64) error {
+	var consumed string
+	if err := s.db.QueryRow(`SELECT consumed_at FROM projects WHERE id = ?`, id).Scan(&consumed); err != nil {
+		return err
+	}
+	if consumed != "" {
+		status = "done"
+	}
+	_, err := s.db.Exec(`UPDATE projects SET name=?, notes=?, status=?, controller_id=?, updated_at=? WHERE id=?`,
+		name, notes, status, controllerID, time.Now().UTC().Format(time.RFC3339), id)
 	return err
 }
 

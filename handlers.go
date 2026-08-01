@@ -19,6 +19,7 @@ type page struct {
 	Title    string
 	SiteName string
 	AuthOn   bool
+	User     *User // nil when signed in with the shared password, or with none
 	Flash    string
 	Error    string
 	Bare     bool // hides the nav, for the sign-in page
@@ -30,6 +31,7 @@ func (a *App) render(w http.ResponseWriter, r *http.Request, name string, title 
 		Title:    title,
 		SiteName: a.cfg.Title,
 		AuthOn:   a.auth.Enabled(),
+		User:     CurrentUser(r),
 		Flash:    r.URL.Query().Get("flash"),
 		Error:    r.URL.Query().Get("error"),
 		Bare:     name == "login.html",
@@ -278,6 +280,15 @@ func itemFromForm(r *http.Request) (Item, error) {
 	if qty < 0 {
 		qty = 0
 	}
+	// A form that does not carry the field at all -- the quick-add box, an
+	// import, a script -- keeps the default rather than silently setting the
+	// reorder line to zero.
+	low := defaultLowStock
+	if raw, ok := r.Form["low_stock"]; ok && strings.TrimSpace(raw[0]) != "" {
+		if n, err := strconv.Atoi(strings.TrimSpace(raw[0])); err == nil && n >= 0 {
+			low = n
+		}
+	}
 	// The tag field is a comma-separated text input; the picker below it posts
 	// additional values under the same name.
 	var tags []Tag
@@ -296,10 +307,15 @@ func itemFromForm(r *http.Request) (Item, error) {
 		Link:       strings.TrimSpace(r.FormValue("link")),
 		Notes:      strings.TrimSpace(r.FormValue("notes")),
 		FolderID:   optionalID(r.FormValue("folder_id")),
+		LowStock:   low,
 		Interfaces: r.Form["interface"],
 		Specs:      ParseSpecs(r.FormValue("specs")),
 	}, nil
 }
+
+// defaultLowStock is the reorder line a new item starts with, and the figure
+// the dashboard used before thresholds were per-item.
+const defaultLowStock = 2
 
 func (a *App) handleCreate(w http.ResponseWriter, r *http.Request) {
 	if err := parseForm(r); err != nil {
@@ -321,6 +337,7 @@ func (a *App) handleCreate(w http.ResponseWriter, r *http.Request) {
 		msg = strings.TrimPrefix(msg+"; "+urlMsg, "; ")
 	}
 	a.savePriceFromForm(r, id)
+	a.store.Record(a.actor(r), "added an item", "item", id, it.Name)
 	redirect(w, r, fmt.Sprintf("/items/%d", id), "Added "+it.Name, msg)
 }
 
@@ -348,6 +365,7 @@ func (a *App) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		msg = strings.TrimPrefix(msg+"; "+urlMsg, "; ")
 	}
 	a.savePriceFromForm(r, id)
+	a.store.Record(a.actor(r), "edited an item", "item", id, it.Name)
 	redirect(w, r, fmt.Sprintf("/items/%d", id), "Saved", msg)
 }
 
@@ -396,11 +414,18 @@ func (a *App) handleDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// Read the name before the row goes, so the audit line says what was
+	// deleted rather than just an id that no longer resolves.
+	name := ""
+	if it, err := a.store.GetItem(id); err == nil {
+		name = it.Name
+	}
 	files, err := a.store.DeleteItem(id)
 	if err != nil {
 		a.fail(w, err, http.StatusInternalServerError)
 		return
 	}
+	a.store.Record(a.actor(r), "deleted an item", "item", id, name)
 	for _, f := range files {
 		a.photos.Remove(f)
 	}
@@ -424,6 +449,7 @@ func (a *App) handleQuantity(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err, http.StatusInternalServerError)
 		return
 	}
+	a.store.Record(a.actor(r), "changed a count", "item", id, fmt.Sprintf("%+d, now %d", delta, qty))
 	if strings.Contains(r.Header.Get("Accept"), "application/json") {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]int{"quantity": qty})
@@ -572,19 +598,45 @@ func (a *App) handleLoginForm(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
-	a.render(w, r, "login.html", "Sign in", map[string]string{"Next": safeNext(r.URL.Query().Get("next"))})
+	a.render(w, r, "login.html", "Sign in", map[string]any{
+		"Next":     safeNext(r.URL.Query().Get("next")),
+		"Accounts": a.auth.Accounts(),
+		"Shared":   a.auth.password != "",
+	})
 }
 
+// handleLogin accepts either a named account or, when one is still configured,
+// the shared password on its own. A username is tried first so that an account
+// whose password happens to equal AUTH_PASSWORD still signs in as itself.
 func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if !a.auth.Enabled() {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
-	if !a.auth.Check(r.FormValue("password")) {
-		redirect(w, r, "/login", "", "Wrong password")
+	username := strings.TrimSpace(r.FormValue("username"))
+	password := r.FormValue("password")
+
+	if username != "" {
+		u, ok := a.store.Authenticate(username, password)
+		if !ok {
+			redirect(w, r, "/login", "", "Wrong username or password")
+			return
+		}
+		a.store.TouchUser(u.ID)
+		a.auth.issue(w, r, u.ID)
+		a.store.Record(u.Username, "signed in", "user", u.ID, "")
+		http.Redirect(w, r, safeNext(r.FormValue("next")), http.StatusSeeOther)
 		return
 	}
-	a.auth.issue(w, r)
+	if !a.auth.Check(password) {
+		msg := "Wrong password"
+		if a.auth.Accounts() {
+			msg = "Wrong username or password"
+		}
+		redirect(w, r, "/login", "", msg)
+		return
+	}
+	a.auth.issue(w, r, 0)
 	http.Redirect(w, r, safeNext(r.FormValue("next")), http.StatusSeeOther)
 }
 

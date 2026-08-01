@@ -1,0 +1,56 @@
+{{define "bom.html"}}
+{{template "top" .}}
+{{$d := .Data}}{{$p := $d.Project}}{{$im := $d.Import}}
+
+<nav class="crumb"><a href="/">Dashboard</a><span class="sep">/</span><a href="/projects">Projects</a>
+  <span class="sep">/</span><a href="/projects/{{$p.ID}}">{{$p.Name}}</a>
+  <span class="sep">/</span><span class="here">Import BOM</span></nav>
+
+<div class="folder-head"><h1>What this bill of materials says</h1></div>
+<p class="muted page-sub">Nothing has been written yet. Check the matches below, then confirm.</p>
+
+<div class="tiles">
+  <div class="tile"><b>{{len $im.Lines}}</b><span>lines</span></div>
+  <div class="tile"><b>{{$im.Pieces}}</b><span>pieces</span></div>
+  <div class="tile"><b class="ok">{{$im.Matched}}</b><span>matched your inventory</span></div>
+  <div class="tile"><b{{if $im.Unknown}} class="warn"{{end}}>{{$im.Unknown}}</b><span>to buy</span></div>
+</div>
+
+<section class="panel-block">
+  <ul class="rows bom">
+    {{range $im.Lines}}
+    <li>
+      <span class="row-item">
+        {{if .Match}}
+          {{if .Match.Thumb}}<img src="/media/thumb/{{.Match.Thumb}}" alt="" loading="lazy">
+          {{else}}<span class="noimg tiny">{{initials .Match.Name}}</span>{{end}}
+        {{else}}
+          <span class="noimg tiny">?</span>
+        {{end}}
+        <span class="row-name">{{.Label}}</span>
+        {{if .Reference}}<span class="chip xs">{{.Reference}}</span>{{end}}
+        {{if .Describe}}<span class="muted">{{.Describe}}</span>{{end}}
+        {{if .Match}}
+          <span class="muted">→ <a href="/items/{{.Match.ID}}">{{.Match.Name}}</a> (matched on {{.Why}}, {{.Match.Available}} free)</span>
+        {{else}}
+          <span class="muted">not in the inventory — it will be listed as something to buy</span>
+        {{end}}
+      </span>
+      <span class="row-qty">×{{.Quantity}}</span>
+    </li>
+    {{end}}
+  </ul>
+</section>
+
+<form method="post" action="/projects/{{$p.ID}}/bom" class="actions">
+  <input type="hidden" name="confirm" value="1">
+  <input type="hidden" name="bom" value="{{bomCSV $im.Lines}}">
+  {{if $d.Replace}}<input type="hidden" name="replace" value="1">{{end}}
+  <button class="btn primary" type="submit">
+    {{if $d.Replace}}Replace the parts list with these {{len $im.Lines}} lines{{else}}Add these {{len $im.Lines}} lines{{end}}
+  </button>
+  <a class="btn ghost" href="/projects/{{$p.ID}}">Cancel</a>
+</form>
+
+{{template "bottom" .}}
+{{end}}

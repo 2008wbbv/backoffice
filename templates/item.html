@@ -66,14 +66,28 @@
         <input type="hidden" name="delta" value="1">
         <button class="btn" type="submit" aria-label="Add one">+</button>
       </form>
-      <span class="muted">in stock</span>
+      <span class="muted">in stock{{if $it.Committed}} · {{$it.Available}} free{{end}}</span>
     </div>
+
+    {{if $it.Claims}}
+    <div class="toast{{if $it.Oversubscribed}} bad{{end}} inline claims">
+      <b>{{$it.ClaimNote}}.</b>
+      <ul class="claim-list">
+        {{range $it.Claims}}<li><a href="/projects/{{.ProjectID}}">{{.Project}}</a> — {{.Quantity}}</li>{{end}}
+      </ul>
+      {{if $it.Oversubscribed}}More is promised than you have. Something has to give.{{end}}
+    </div>
+    {{end}}
+    {{if and $it.Low (not $it.Claims)}}
+    <div class="toast inline">Running low — the reorder line for this part is {{$it.Threshold}}.</div>
+    {{end}}
 
     <dl class="facts">
       {{if $it.FolderName}}<dt>Folder</dt><dd><a href="/folders/{{$it.FolderRef}}">{{$it.FolderName}}</a></dd>{{end}}
       {{if $it.Location}}<dt>Location</dt><dd><a href="/items?location={{$it.Location}}">{{$it.Location}}</a></dd>{{end}}
       {{if $it.Category}}<dt>Type</dt><dd><a href="/items?category={{$it.Category}}">{{$it.Category}}</a></dd>{{end}}
       {{if $it.Value}}<dt>Value / rating</dt><dd>{{$it.Value}}</dd>{{end}}
+      <dt>Reorder at</dt><dd>{{$it.Threshold}}{{if $it.Low}} <span class="warn">— you are there</span>{{end}}</dd>
       {{if $it.PartNumber}}<dt>Part number</dt><dd><code>{{$it.PartNumber}}</code></dd>{{end}}
       {{if $it.Link}}<dt>Link</dt><dd><a href="{{$it.Link}}" rel="noreferrer noopener" target="_blank">{{$it.Link}}</a></dd>{{end}}
       <dt>Updated</dt><dd>{{since $it.UpdatedAt}}</dd>
