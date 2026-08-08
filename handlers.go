@@ -163,6 +163,9 @@ type itemData struct {
 	History  []PricePoint
 	Changes  []PriceChange
 	RefKinds []string
+	Land     *Footprint // the drawing, when this part has a footprint recorded
+	LandErr  string
+	Incoming int // on its way from an order that has not arrived
 }
 
 func (a *App) handleItem(w http.ResponseWriter, r *http.Request) {
@@ -175,14 +178,33 @@ func (a *App) handleItem(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err, http.StatusInternalServerError)
 		return
 	}
-	a.render(w, r, "item.html", it.Name, itemData{
+	data := itemData{
 		Item:     it,
 		Octopart: a.search.Nexar() != nil,
 		Folders:  a.folderListOrNil(),
 		History:  history,
 		Changes:  PriceChanges(history),
 		RefKinds: RefKinds,
-	})
+	}
+	if incoming, err := a.store.Incoming(); err == nil {
+		data.Incoming = incoming[it.ID]
+	}
+	// The footprint is drawn from the cached file, so an item page never waits
+	// on the network: only the first lookup fetches, and that happens when the
+	// footprint is set rather than when the page is opened.
+	if it.Footprint != "" {
+		if body, source, err := a.store.CachedFootprint(it.Footprint); err == nil {
+			if fp, err := ParseFootprint(body); err == nil {
+				fp.Source = source
+				data.Land = fp
+			} else {
+				data.LandErr = err.Error()
+			}
+		} else {
+			data.LandErr = "not fetched yet — save the footprint again to fetch it"
+		}
+	}
+	a.render(w, r, "item.html", it.Name, data)
 }
 
 func (a *App) handleNewForm(w http.ResponseWriter, r *http.Request) {
@@ -333,7 +355,7 @@ func (a *App) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	msg := a.savePhotos(r, id)
-	if urlMsg := a.savePhotoFromURL(r, id, r.FormValue("image_url")); urlMsg != "" {
+	if urlMsg := a.savePhotoFromURL(r.Context(), id, r.FormValue("image_url")); urlMsg != "" {
 		msg = strings.TrimPrefix(msg+"; "+urlMsg, "; ")
 	}
 	a.savePriceFromForm(r, id)
@@ -361,7 +383,7 @@ func (a *App) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	msg := a.savePhotos(r, id)
-	if urlMsg := a.savePhotoFromURL(r, id, r.FormValue("image_url")); urlMsg != "" {
+	if urlMsg := a.savePhotoFromURL(r.Context(), id, r.FormValue("image_url")); urlMsg != "" {
 		msg = strings.TrimPrefix(msg+"; "+urlMsg, "; ")
 	}
 	a.savePriceFromForm(r, id)

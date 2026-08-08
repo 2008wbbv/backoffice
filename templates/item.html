@@ -67,6 +67,7 @@
         <button class="btn" type="submit" aria-label="Add one">+</button>
       </form>
       <span class="muted">in stock{{if $it.Committed}} · {{$it.Available}} free{{end}}</span>
+      {{if $it.Incoming}}<span class="chip xs"><a href="/orders">{{$it.Incoming}} on order</a></span>{{end}}
     </div>
 
     {{if $it.Claims}}
@@ -173,7 +174,13 @@
     </section>
 
     <section class="refs">
-      <h2>Datasheets &amp; pinouts</h2>
+      <div class="section-head"><h2>Datasheets &amp; pinouts</h2>
+        <form method="post" action="/items/{{$it.ID}}/docs">
+          <button class="btn tiny" type="submit">Find documentation</button>
+        </form>
+      </div>
+      <p class="muted small">Follows the product link and searches the shops it can reach for
+        datasheets, pinouts and manuals. Pinout images are downloaded so they show up here.</p>
       {{if $it.Pinouts}}
       <div class="pinouts">
         {{range $it.Pinouts}}
@@ -231,6 +238,40 @@
       </dl>
     </section>
     {{end}}
+
+    <section class="land">
+      <div class="section-head"><h2>Footprint</h2></div>
+      {{with $it.Land}}
+      <div class="land-drawing">{{.SVG}}</div>
+      <dl class="facts">
+        <dt>Name</dt><dd><code>{{$it.Footprint}}</code></dd>
+        <dt>Size</dt><dd>{{.Size}}{{with .Pitch}} · {{.}} pitch{{end}}</dd>
+        <dt>Pads</dt><dd>{{.PadCount}}, {{.Mounting}}</dd>
+        {{if .Description}}<dt>From the library</dt><dd>{{.Description}}</dd>{{end}}
+        <dt>Source</dt><dd>{{.Source}}</dd>
+      </dl>
+      {{else}}
+        {{if $it.Footprint}}
+          <p class="muted"><code>{{$it.Footprint}}</code> — {{$it.LandErr}}</p>
+        {{else}}
+          <p class="muted">No land pattern recorded. Give it a KiCad footprint name and the pads
+            are drawn to scale, so you can see how big the part actually is and which way round
+            pin 1 goes. A BOM import fills this in on its own.</p>
+        {{end}}
+      {{end}}
+
+      <details class="tuck">
+      <summary>{{if $it.Footprint}}Change{{else}}Set{{end}} the footprint</summary>
+      <form class="price-add" method="post" action="/items/{{$it.ID}}/footprint" enctype="multipart/form-data">
+        <input name="footprint" value="{{$it.Footprint}}" placeholder="Resistor_SMD:R_0805_2012Metric"
+               spellcheck="false" autocomplete="off">
+        <input type="file" name="file" accept=".kicad_mod" aria-label="Upload a .kicad_mod file">
+        <button class="btn" type="submit">Save</button>
+      </form>
+      <p class="muted small">Fetched once from KiCad's own library and then kept, so the drawing
+        works offline. Upload a <code>.kicad_mod</code> for anything not in that library.</p>
+      </details>
+    </section>
 
     {{if $it.Notes}}<div class="notes">{{$it.Notes}}</div>{{end}}
 

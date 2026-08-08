@@ -1,0 +1,130 @@
+{{define "order.html"}}
+{{template "top" .}}
+{{$d := .Data}}{{$o := $d.Order}}
+
+<nav class="crumb"><a href="/">Dashboard</a><span class="sep">/</span><a href="/orders">Orders</a>
+  <span class="sep">/</span><span class="here">{{if $o.Source}}{{$o.Source}}{{else}}Order{{end}}</span></nav>
+
+<div class="folder-head">
+  <h1>{{if $o.Source}}{{$o.Source}}{{else}}Order{{end}}
+    {{if $o.Reference}}<span class="muted">{{$o.Reference}}</span>{{end}}</h1>
+  <div class="folder-actions">
+    <details class="inline-form">
+      <summary class="btn">Settings</summary>
+      <div class="pop">
+        <form method="post" action="/orders/{{$o.ID}}">
+          <input name="source" value="{{$o.Source}}" placeholder="Shop" required>
+          <input name="reference" value="{{$o.Reference}}" placeholder="Their order number">
+          <input name="tracking" value="{{$o.Tracking}}" placeholder="Tracking number">
+          <label class="stack"><span class="muted">Placed</span>
+            <input name="placed_at" type="date" value="{{$o.PlacedDay}}"></label>
+          <label class="stack"><span class="muted">Expected</span>
+            <input name="expected_at" type="date" value="{{$o.ExpectedDay}}"></label>
+          <select name="status"{{if $o.Received}} disabled{{end}}>
+            {{range $s := $d.Statuses}}<option value="{{$s}}"{{if eq $o.Status $s}} selected{{end}}>{{$s}}</option>{{end}}
+          </select>
+          <input name="shipping" value="{{if $o.Shipping}}{{printf "%.2f" $o.Shipping}}{{end}}" placeholder="Shipping" aria-label="Shipping cost">
+          <input name="currency" value="{{$o.Currency}}" size="4" aria-label="Currency">
+          <select name="project_id">
+            <option value="">— not for a project —</option>
+            {{range $d.Projects}}<option value="{{.ID}}"{{if eq $o.ProjectRef .ID}} selected{{end}}>{{.Name}}</option>{{end}}
+          </select>
+          <input name="notes" value="{{$o.Notes}}" placeholder="Notes">
+          <button class="btn primary" type="submit">Save</button>
+        </form>
+        <form method="post" action="/orders/{{$o.ID}}/delete" data-confirm="Delete this order?">
+          <button class="btn danger" type="submit">Delete order</button>
+        </form>
+      </div>
+    </details>
+  </div>
+</div>
+
+<div class="tiles">
+  <div class="tile"><b>{{$o.Pieces}}</b><span>pieces</span></div>
+  <div class="tile"><b>{{$o.Display}}</b><span>total{{if $o.Shipping}}, inc. shipping{{end}}</span></div>
+  <div class="tile"><b>{{$o.Status}}</b><span>status</span></div>
+  {{if $o.Received}}
+    <div class="tile"><b>{{$o.TookDays}}</b><span>days to arrive</span></div>
+  {{else if $o.Due}}
+    <div class="tile"><b{{if $o.Overdue}} class="warn"{{end}}>{{$o.Due}}</b><span>delivery</span></div>
+  {{end}}
+</div>
+
+<section class="panel-block stock-state">
+  {{if $o.Received}}
+    <div class="toast ok inline">
+      <b>Arrived {{since $o.ArrivedAt}}.</b> Everything on it went on the shelf.
+      <form method="post" action="/orders/{{$o.ID}}/unreceive"
+            data-confirm="Take this order's parts back off the shelf?">
+        <button class="btn tiny" type="submit">Un-receive</button>
+      </form>
+    </div>
+  {{else if $o.Cancelled}}
+    <p class="muted">Cancelled — nothing from this order is counted.</p>
+  {{else}}
+    <div class="toast inline">
+      <b>{{$o.Outstanding}} pieces not on the shelf yet.</b>
+      {{if $o.Tracking}}Tracking <code>{{$o.Tracking}}</code>.{{end}}
+      <form method="post" action="/orders/{{$o.ID}}/receive"
+            data-confirm="Put {{$o.Outstanding}} pieces on the shelf and mark this order arrived?">
+        <button class="btn tiny primary" type="submit">Mark arrived &amp; add to stock</button>
+      </form>
+    </div>
+  {{end}}
+</section>
+
+<section class="panel-block">
+  <div class="section-head"><h2>What's on it</h2></div>
+  {{if $o.Lines}}
+  <ul class="rows">
+    {{range $o.Lines}}
+    <li>
+      <span class="row-item">
+        {{if .Item}}
+          {{if .Item.Thumb}}<img src="/media/thumb/{{.Item.Thumb}}" alt="" loading="lazy">
+          {{else}}<span class="noimg tiny">{{initials .Label}}</span>{{end}}
+          <a class="row-name" href="/items/{{.Item.ID}}">{{.Label}}</a>
+        {{else}}
+          <span class="noimg tiny">?</span>
+          <span class="row-name">{{.Label}} <span class="muted">(not in the inventory)</span></span>
+        {{end}}
+        {{if .UnitPrice}}<span class="muted">{{money .UnitPrice}} each</span>{{end}}
+        {{if .Note}}<span class="muted">{{.Note}}</span>{{end}}
+        {{if .Received}}<span class="chip xs">on the shelf</span>{{end}}
+      </span>
+      <span class="row-qty">×{{.Quantity}}</span>
+      <span class="row-qty">{{.Display}}</span>
+      {{if not .Received}}
+      <form method="post" action="/order-lines/{{.ID}}/delete">
+        <button class="btn tiny danger" type="submit" aria-label="Remove {{.Label}}">×</button>
+      </form>
+      {{end}}
+    </li>
+    {{end}}
+  </ul>
+  {{else}}
+  <p class="muted">Nothing on this order yet.</p>
+  {{end}}
+
+  {{if not $o.Received}}
+  <form class="price-add" method="post" action="/orders/{{$o.ID}}/lines">
+    <select name="item_id">
+      <option value="">— a part you already have a record for —</option>
+      {{range $d.AllItems}}<option value="{{.ID}}">{{.Name}} ({{.Quantity}} in stock)</option>{{end}}
+    </select>
+    <input name="name" placeholder="…or something new">
+    <input name="quantity" type="number" min="1" value="1" aria-label="Quantity">
+    <input name="unit_price" placeholder="Unit price" aria-label="Unit price">
+    <input name="currency" value="{{$o.Currency}}" size="4" aria-label="Currency">
+    <button class="btn" type="submit">Add line</button>
+  </form>
+  <p class="muted">Receiving the order records what you actually paid as the price for each part,
+    and how long it really took as that shop's lead time.</p>
+  {{end}}
+</section>
+
+{{if $o.Notes}}<p class="notes">{{$o.Notes}}</p>{{end}}
+
+{{template "bottom" .}}
+{{end}}

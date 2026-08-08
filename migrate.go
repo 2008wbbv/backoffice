@@ -376,6 +376,86 @@ CREATE TABLE audit (
 CREATE INDEX idx_audit_at ON audit(at DESC, id DESC);
 `,
 	},
+	{
+		name: "orders and receiving",
+		sql: `
+-- What you bought, from whom, and whether it turned up. Receiving an order is
+-- the inverse of building a project: one puts stock on the shelf, the other
+-- takes it off, and both record enough to be undone.
+CREATE TABLE orders (
+	id          INTEGER PRIMARY KEY AUTOINCREMENT,
+	source      TEXT    NOT NULL DEFAULT '',
+	reference   TEXT    NOT NULL DEFAULT '',
+	status      TEXT    NOT NULL DEFAULT 'draft',
+	placed_at   TEXT    NOT NULL DEFAULT '',
+	expected_at TEXT    NOT NULL DEFAULT '',
+	arrived_at  TEXT    NOT NULL DEFAULT '',
+	tracking    TEXT    NOT NULL DEFAULT '',
+	shipping    REAL    NOT NULL DEFAULT 0,
+	currency    TEXT    NOT NULL DEFAULT 'USD',
+	notes       TEXT    NOT NULL DEFAULT '',
+	project_id  INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+	created_at  TEXT    NOT NULL,
+	updated_at  TEXT    NOT NULL
+);
+CREATE INDEX idx_orders_status ON orders(status, placed_at DESC);
+
+CREATE TABLE order_lines (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	order_id   INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+	item_id    INTEGER REFERENCES items(id) ON DELETE SET NULL,
+	name       TEXT    NOT NULL DEFAULT '',
+	quantity   INTEGER NOT NULL DEFAULT 1,
+	unit_price REAL    NOT NULL DEFAULT 0,
+	currency   TEXT    NOT NULL DEFAULT 'USD',
+	-- How many of this line have actually been put on the shelf, so a partial
+	-- delivery can be received twice without double-counting.
+	received   INTEGER NOT NULL DEFAULT 0,
+	note       TEXT    NOT NULL DEFAULT ''
+);
+CREATE INDEX idx_order_lines ON order_lines(order_id);
+`,
+	},
+	{
+		name: "pin assignments",
+		sql: `
+-- The budget counts pins; this records which pin went where, which is the only
+-- way to catch the same one being used twice.
+CREATE TABLE pin_assignments (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+	pin        TEXT    NOT NULL,
+	item_id    INTEGER REFERENCES items(id) ON DELETE SET NULL,
+	part       TEXT    NOT NULL DEFAULT '',
+	signal     TEXT    NOT NULL DEFAULT '',
+	note       TEXT    NOT NULL DEFAULT '',
+	position   INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_pin_assignments ON pin_assignments(project_id, position, id);
+`,
+	},
+	{
+		name: "sub-assemblies",
+		// A parts list line can point at another project instead of an item: a
+		// power supply module you build once and then use in three things.
+		sql: `ALTER TABLE project_parts ADD COLUMN sub_project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE;`,
+	},
+	{
+		name: "footprints",
+		sql: `
+-- The land pattern a part solders onto, by KiCad library name. The file itself
+-- is cached so the drawing survives the library moving or the network going
+-- away, and so a footprint is fetched once rather than on every page load.
+ALTER TABLE items ADD COLUMN footprint TEXT NOT NULL DEFAULT '';
+
+CREATE TABLE footprints (
+	name       TEXT PRIMARY KEY,
+	source     TEXT NOT NULL DEFAULT '',
+	body       TEXT NOT NULL,
+	fetched_at TEXT NOT NULL
+);
+`,
+	},
 }
 
 func migrate(db *sql.DB) error {

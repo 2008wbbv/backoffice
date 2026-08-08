@@ -25,7 +25,8 @@ type Item struct {
 	Link       string
 	Notes      string
 	FolderID   *int64
-	LowStock   int // reorder when free stock reaches this
+	LowStock   int    // reorder when free stock reaches this
+	Footprint  string // KiCad land pattern name, e.g. Resistor_SMD:R_0805_2012Metric
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 
@@ -227,6 +228,12 @@ func openDB(path string) (*sql.DB, error) {
 	}
 	// modernc's driver is safe for concurrent use, but a single writer avoids
 	// SQLITE_BUSY churn entirely on a box this small.
+	//
+	// One connection has a sharp edge worth knowing about: while a transaction
+	// is open it holds that connection, so any query issued on the pool rather
+	// than on the transaction waits for a connection that cannot be released
+	// until the transaction ends. Everything a transaction needs must therefore
+	// be read before it begins.
 	db.SetMaxOpenConns(1)
 	if err := db.Ping(); err != nil {
 		return nil, err
@@ -238,15 +245,15 @@ func openDB(path string) (*sql.DB, error) {
 }
 
 const itemCols = `i.id, i.name, i.category, i.quantity, i.location, i.part_number,
-	i.value, i.link, i.notes, i.folder_id, i.low_stock, i.created_at, i.updated_at,
-	COALESCE(f.name, '')`
+	i.value, i.link, i.notes, i.folder_id, i.low_stock, i.footprint,
+	i.created_at, i.updated_at, COALESCE(f.name, '')`
 
 func scanItem(s interface{ Scan(...any) error }) (Item, error) {
 	var it Item
 	var created, updated string
 	err := s.Scan(&it.ID, &it.Name, &it.Category, &it.Quantity, &it.Location,
 		&it.PartNumber, &it.Value, &it.Link, &it.Notes, &it.FolderID, &it.LowStock,
-		&created, &updated, &it.FolderName)
+		&it.Footprint, &created, &updated, &it.FolderName)
 	if err != nil {
 		return it, err
 	}
@@ -571,10 +578,10 @@ func (s *Store) CreateItem(it Item) (int64, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	res, err := tx.Exec(`INSERT INTO items
 		(name, category, quantity, location, part_number, value, link, notes,
-		 folder_id, low_stock, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 folder_id, low_stock, footprint, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		it.Name, it.Category, it.Quantity, it.Location, it.PartNumber,
-		it.Value, it.Link, it.Notes, it.FolderID, max(it.LowStock, 0), now, now)
+		it.Value, it.Link, it.Notes, it.FolderID, max(it.LowStock, 0), it.Footprint, now, now)
 	if err != nil {
 		return 0, err
 	}

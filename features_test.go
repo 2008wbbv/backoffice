@@ -407,11 +407,11 @@ func TestPhotoImportFromURL(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 
 	// Direct image URL.
-	if msg := app.savePhotoFromURL(r, id, imgSrv.URL+"/board.jpg"); msg != "" {
+	if msg := app.savePhotoFromURL(r.Context(), id, imgSrv.URL+"/board.jpg"); msg != "" {
 		t.Fatalf("direct image import failed: %s", msg)
 	}
 	// A page URL: the image should be found via its og:image.
-	if msg := app.savePhotoFromURL(r, id, imgSrv.URL+"/product"); msg != "" {
+	if msg := app.savePhotoFromURL(r.Context(), id, imgSrv.URL+"/product"); msg != "" {
 		t.Fatalf("page import did not fall back to og:image: %s", msg)
 	}
 
@@ -439,7 +439,7 @@ func TestPhotoImportRejectsNonImagePage(t *testing.T) {
 	id := seed(t, app.store, Item{Name: "Board"})[0]
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 
-	if msg := app.savePhotoFromURL(r, id, srv.URL); msg == "" {
+	if msg := app.savePhotoFromURL(r.Context(), id, srv.URL); msg == "" {
 		t.Error("importing a page with no image reported success")
 	}
 	it, _ := app.store.GetItem(id)

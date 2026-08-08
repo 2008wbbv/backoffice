@@ -169,6 +169,8 @@ type PageMeta struct {
 	// Documents linked from the page that look like datasheets or manuals, so
 	// an import can attach them without anyone hunting for the PDF.
 	Documents []PageDocument
+	// Pages worth opening next, when the documents are a hop away.
+	Leads []PageDocument
 }
 
 // PageDocument is a downloadable reference discovered on a product page.
@@ -249,6 +251,13 @@ func (f *Fetcher) FetchPage(ctx context.Context, raw string) (*PageMeta, error) 
 			d.URL = abs
 			d.Title = tidy(d.Title, 90)
 			pm.Documents = append(pm.Documents, d)
+		}
+	}
+	for _, d := range scan.Leads {
+		if abs := absolute(d.URL); abs != "" {
+			d.URL = abs
+			d.Title = tidy(d.Title, 90)
+			pm.Leads = append(pm.Leads, d)
 		}
 	}
 
@@ -492,6 +501,11 @@ type bodyScan struct {
 	JSONLDImage  string
 	LargestImage string
 	Documents    []PageDocument
+	// Pages that say they hold documentation without being documents
+	// themselves: a shop's "learn guide", a product's "downloads" tab. The
+	// datasheet is usually one hop behind one of these rather than on the
+	// product page itself.
+	Leads []PageDocument
 }
 
 // docPattern recognises the link text and file names that shops use for the
@@ -504,6 +518,29 @@ var docPattern = []struct{ match, kind string }{
 	{"manual", "manual"},
 	{"user guide", "manual"},
 	{"reference", "reference"},
+	// Not a document itself, but the page shops park the documents on. It
+	// only ever becomes a lead, never a reference, because looksLikeDocument
+	// rejects anything without a file extension.
+	{"download", "reference"},
+}
+
+// diagramKind recognises an inline image that is worth keeping as a reference
+// rather than as decoration. It is deliberately strict: "pinout" and
+// "schematic" appear in the alt text of the real thing and almost nowhere else,
+// whereas a looser word like "diagram" would drag in every marketing render.
+func diagramKind(text string) string {
+	t := strings.ToLower(text)
+	switch {
+	case strings.Contains(t, "pinout"), strings.Contains(t, "pin out"),
+		strings.Contains(t, "pin-out"), strings.Contains(t, "pin map"),
+		strings.Contains(t, "pinmap"):
+		return "pinout"
+	case strings.Contains(t, "schematic"):
+		return "schematic"
+	case strings.Contains(t, "dimensions"), strings.Contains(t, "mechanical drawing"):
+		return "reference"
+	}
+	return ""
 }
 
 // scanBody walks the whole document for the things the <head> did not provide:
@@ -542,6 +579,19 @@ func scanBody(doc *html.Node) bodyScan {
 				if out.LargestImage == "" && src != "" && !isDecorativeImage(src) {
 					out.LargestImage = src
 				}
+				// A pinout is usually an image sitting in the page, not a file
+				// anybody linked, so the alt text and the file name are what
+				// give it away. Missing these is why pinouts used to have to be
+				// hunted down by hand.
+				if src != "" && !seen[src] {
+					if kind := diagramKind(attr(n, "alt") + " " + attr(n, "title") + " " + src); kind != "" {
+						seen[src] = true
+						out.Documents = append(out.Documents, PageDocument{
+							Title: tidy(orDefault(attr(n, "alt"), strings.Title(kind)), 90), //nolint:staticcheck // ASCII
+							URL:   src, Kind: kind,
+						})
+					}
+				}
 			case "a":
 				href := attr(n, "href")
 				if href == "" || seen[href] {
@@ -549,17 +599,21 @@ func scanBody(doc *html.Node) bodyScan {
 				}
 				text := strings.ToLower(textOf(n) + " " + href)
 				for _, p := range docPattern {
-					if strings.Contains(text, p.match) && looksLikeDocument(href) {
-						seen[href] = true
-						title := strings.TrimSpace(textOf(n))
-						if title == "" {
-							title = strings.Title(p.kind) //nolint:staticcheck // ASCII
-						}
-						out.Documents = append(out.Documents, PageDocument{
-							Title: title, URL: href, Kind: p.kind,
-						})
-						break
+					if !strings.Contains(text, p.match) {
+						continue
 					}
+					seen[href] = true
+					title := strings.TrimSpace(textOf(n))
+					if title == "" {
+						title = strings.Title(p.kind) //nolint:staticcheck // ASCII
+					}
+					doc := PageDocument{Title: tidy(title, 90), URL: href, Kind: p.kind}
+					if looksLikeDocument(href) {
+						out.Documents = append(out.Documents, doc)
+					} else {
+						out.Leads = append(out.Leads, doc)
+					}
+					break
 				}
 			}
 		}
@@ -569,8 +623,11 @@ func scanBody(doc *html.Node) bodyScan {
 	}
 	walk(doc)
 
-	if len(out.Documents) > 6 {
-		out.Documents = out.Documents[:6]
+	if len(out.Documents) > 8 {
+		out.Documents = out.Documents[:8]
+	}
+	if len(out.Leads) > 4 {
+		out.Leads = out.Leads[:4]
 	}
 	return out
 }

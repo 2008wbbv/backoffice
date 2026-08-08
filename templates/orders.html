@@ -1,0 +1,86 @@
+{{define "orders.html"}}
+{{template "top" .}}
+{{$d := .Data}}
+
+<nav class="crumb"><a href="/">Dashboard</a><span class="sep">/</span><span class="here">Orders</span></nav>
+
+<div class="folder-head">
+  <h1>Orders</h1>
+  <div class="folder-actions">
+    <details class="inline-form">
+      <summary class="btn primary">+ New order</summary>
+      <form method="post" action="/orders">
+        <input name="source" placeholder="Shop — LCSC, Adafruit…" required>
+        <input name="reference" placeholder="Their order number">
+        <input name="placed_at" type="date" aria-label="Placed on">
+        <input name="expected_at" type="date" aria-label="Expected">
+        <select name="status">
+          {{range $s := $d.Statuses}}<option value="{{$s}}"{{if eq $s "ordered"}} selected{{end}}>{{$s}}</option>{{end}}
+        </select>
+        <button class="btn primary" type="submit">Start it</button>
+      </form>
+    </details>
+  </div>
+</div>
+
+<div class="tiles">
+  <div class="tile"><b>{{len $d.Orders}}</b><span>orders</span></div>
+  <div class="tile"><b>{{$d.Outstanding}}</b><span>pieces on the way</span></div>
+  <div class="tile"><b{{if $d.Overdue}} class="warn"{{end}}>{{$d.Overdue}}</b><span>overdue</span></div>
+  <div class="tile"><b>{{money $d.Spent}}</b><span>spent</span></div>
+</div>
+
+{{if $d.Orders}}
+<section class="panel-block">
+  <ul class="rows orders">
+    {{range $d.Orders}}
+    <li class="order-row {{.Status}}">
+      <a class="row-item" href="/orders/{{.ID}}">
+        <span class="order-mark">{{if .Received}}✓{{else if .Cancelled}}✕{{else if .InFlight}}🚚{{else}}✎{{end}}</span>
+        <span class="row-name">{{if .Source}}{{.Source}}{{else}}Unknown shop{{end}}</span>
+        <span class="muted">
+          {{len .Lines}} line{{if ne (len .Lines) 1}}s{{end}} · {{.Pieces}} pieces
+          {{if .Reference}} · {{.Reference}}{{end}}
+          {{if .Project}} · for {{.Project}}{{end}}
+        </span>
+        {{if .Overdue}}<span class="chip xs bad">{{.Due}}</span>
+        {{else if .Due}}<span class="chip xs">{{.Due}}</span>{{end}}
+        {{if .Partial}}<span class="chip xs">{{.Outstanding}} still owed</span>{{end}}
+      </a>
+      <span class="row-qty">{{.Display}}</span>
+    </li>
+    {{end}}
+  </ul>
+</section>
+{{else}}
+<div class="empty">
+  <p><strong>No orders yet.</strong></p>
+  <p class="muted">An order is what closes the loop: a project says what it is short of, you buy it,
+    and marking the order arrived puts it on the shelf without counting anything by hand.</p>
+</div>
+{{end}}
+
+{{if $d.Leads}}
+<section class="panel-block">
+  <div class="section-head"><h2>How long shops actually take</h2>
+    <span class="muted">measured from your own deliveries, not from their website</span></div>
+  <ul class="rows">
+    {{range $d.Leads}}
+    <li>
+      <span class="row-item">
+        <span class="row-name">{{.Source}}</span>
+        <span class="muted">
+          {{.MeanDays}} days on average over {{.Orders}} order{{if ne .Orders 1}}s{{end}}
+          {{if ne .MinDays .MaxDays}} (between {{.MinDays}} and {{.MaxDays}}){{end}}
+          {{with .Drift}} — {{.}}{{end}}
+        </span>
+      </span>
+      <span class="row-qty">{{.MeanDays}}d</span>
+    </li>
+    {{end}}
+  </ul>
+</section>
+{{end}}
+
+{{template "bottom" .}}
+{{end}}

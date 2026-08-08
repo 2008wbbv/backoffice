@@ -725,3 +725,75 @@ body.drag-target::after {
   position: static; background: none; border: none; padding: 0;
   box-shadow: none; width: auto; max-width: none;
 }
+
+/* --- footprint drawing --------------------------------------------------- */
+
+/* The drawing is an inline SVG, so it takes its colours from here and follows
+   the theme rather than baking them in. */
+.land-drawing {
+  display: flex; justify-content: center; padding: 14px;
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: var(--radius); margin-bottom: 12px; overflow-x: auto;
+}
+svg.footprint { max-width: 100%; height: auto; }
+svg.footprint .fp-pad { fill: #d9a441; }
+svg.footprint .fp-drill { fill: var(--panel-2); }
+svg.footprint .fp-one { stroke: var(--accent); stroke-width: .08; }
+svg.footprint .fp-silk { stroke: var(--text); opacity: .85; }
+svg.footprint .fp-fab { stroke: var(--muted); opacity: .5; }
+svg.footprint .fp-courtyard { stroke: var(--muted); opacity: .32; stroke-dasharray: .3 .25; }
+svg.footprint .fp-num { fill: #2a1d05; font-weight: 700; font-family: inherit; }
+.land .facts { font-size: 13.5px; }
+.small { font-size: 12.5px; }
+
+/* --- orders --------------------------------------------------------------- */
+
+.order-mark {
+  width: 30px; height: 30px; flex: none; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--panel-2); font-size: 14px;
+}
+.order-row.arrived .order-mark { background: color-mix(in srgb, var(--ok) 22%, transparent); }
+.order-row.cancelled { opacity: .55; }
+.chip.xs.bad { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); color: var(--danger); }
+.rows.orders .row-qty { font-size: 14px; }
+label.stack { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+label.stack input { min-width: 150px; }
+
+/* --- pin map -------------------------------------------------------------- */
+
+.wiring { width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 12px; }
+.wiring th {
+  text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); font-weight: 600; padding: 0 10px 6px 0;
+}
+.wiring td { padding: 7px 10px 7px 0; border-top: 1px solid var(--line); vertical-align: baseline; }
+.wiring td form { margin: 0; }
+.wiring tr.clash td { background: color-mix(in srgb, var(--danger) 8%, transparent); }
+.wiring code { font-size: 13px; }
+.pin-ideas .wiring input { width: 100%; }
+.rows.plain li { background: none; border: none; padding-left: 0; }
+
+/* --- scanner -------------------------------------------------------------- */
+
+.scanner { max-width: 560px; }
+.scan-stage {
+  position: relative; border-radius: var(--radius); overflow: hidden;
+  background: #000; margin-bottom: 12px; aspect-ratio: 4 / 3;
+}
+.scan-stage video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.scan-reticle {
+  position: absolute; inset: 18% 12%; border: 2px solid var(--accent);
+  border-radius: 12px; opacity: .8; pointer-events: none;
+}
+.scan-hit { margin-top: 14px; }
+.scan-card {
+  display: flex; align-items: center; gap: 12px; padding: 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+}
+.scan-card .qtybox { margin: 0 0 0 auto; }
+.scan-card .big-qty { font-size: 22px; }
+
+/* The flash toasts sit tight against the content below them on purpose; one
+   used as a section of its own needs the same gap as any other section. */
+.toast.standalone { margin-bottom: 26px; }

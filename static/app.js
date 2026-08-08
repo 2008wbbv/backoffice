@@ -492,3 +492,169 @@ document.querySelectorAll('[data-live-search]').forEach((input) => {
     if (!form.contains(e.target)) close();
   });
 });
+
+/* --- scanning a label ---------------------------------------------------- */
+
+/* The camera work uses the browser's own BarcodeDetector: no library ships
+   with the page, and nothing about the image leaves the device. It is not in
+   every browser -- Firefox and Safari have no implementation -- so the page
+   says so plainly and the typed field beside it does the same job. */
+document.querySelectorAll('[data-scanner]').forEach((root) => {
+  const stage = root.querySelector('[data-scan-stage]');
+  const video = root.querySelector('[data-scan-video]');
+  const status = root.querySelector('[data-scan-status]');
+  const startBtn = root.querySelector('[data-scan-start]');
+  const stopBtn = root.querySelector('[data-scan-stop]');
+  const hit = root.querySelector('[data-scan-hit]');
+  const manual = root.querySelector('[data-scan-manual]');
+
+  const supported = 'BarcodeDetector' in window &&
+    navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
+
+  if (!supported) {
+    status.textContent = 'This browser cannot use the camera for barcodes ' +
+      '(Chrome on Android can). Type the code below instead.';
+    if (manual) manual.focus();
+    return;
+  }
+
+  status.textContent = 'Point the camera at a QR code or barcode on a drawer.';
+  startBtn.hidden = false;
+
+  let detector = null, stream = null, running = false, lastCode = '', lastAt = 0;
+
+  async function start() {
+    try {
+      const formats = await window.BarcodeDetector.getSupportedFormats();
+      const wanted = ['qr_code', 'code_128', 'ean_13', 'code_39', 'upc_a', 'upc_e']
+        .filter((f) => formats.includes(f));
+      detector = new window.BarcodeDetector({ formats: wanted.length ? wanted : formats });
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' }, audio: false,
+      });
+    } catch (err) {
+      status.textContent = 'Could not open the camera: ' + err.message;
+      return;
+    }
+    video.srcObject = stream;
+    await video.play();
+    stage.hidden = false;
+    startBtn.hidden = true;
+    stopBtn.hidden = false;
+    status.textContent = 'Looking…';
+    running = true;
+    tick();
+  }
+
+  function stop() {
+    running = false;
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    stream = null;
+    stage.hidden = true;
+    stopBtn.hidden = true;
+    startBtn.hidden = false;
+    status.textContent = 'Camera off.';
+  }
+
+  async function tick() {
+    if (!running) return;
+    try {
+      const codes = await detector.detect(video);
+      if (codes.length) await found(codes[0].rawValue);
+    } catch (_) {
+      /* A frame that cannot be decoded is the normal case, not an error. */
+    }
+    /* Four looks a second is plenty and leaves the phone cool. */
+    if (running) setTimeout(() => requestAnimationFrame(tick), 250);
+  }
+
+  async function found(code) {
+    const now = Date.now();
+    /* The same label stays in frame for many frames; only act on it once. */
+    if (code === lastCode && now - lastAt < 2500) return;
+    lastCode = code;
+    lastAt = now;
+
+    if (navigator.vibrate) navigator.vibrate(30);
+    status.textContent = 'Found ' + code;
+
+    let res;
+    try {
+      res = await fetch('/lookup?code=' + encodeURIComponent(code),
+        { headers: { Accept: 'application/json' } });
+    } catch (err) {
+      status.textContent = 'Lookup failed: ' + err.message;
+      return;
+    }
+    const data = await res.json();
+    if (!res.ok) {
+      hit.hidden = false;
+      hit.innerHTML = '';
+      hit.append(el('p', 'muted', data.error || 'Nothing matched that code.'));
+      const add = el('a', 'btn', 'Add it to the inventory');
+      add.href = '/items/new?name=' + encodeURIComponent(code);
+      hit.append(add);
+      return;
+    }
+    show(data);
+  }
+
+  /* The result is rendered in place rather than navigated to, so the camera
+     keeps running and a whole drawer can be counted without leaving the page. */
+  function show(item) {
+    hit.hidden = false;
+    hit.innerHTML = '';
+
+    const row = el('div', 'scan-card');
+    const thumb = el('span', 'ta-img');
+    if (item.thumb) {
+      const img = document.createElement('img');
+      img.src = '/media/thumb/' + item.thumb;
+      img.alt = '';
+      thumb.append(img);
+    } else {
+      thumb.textContent = (item.name || '?').slice(0, 2).toUpperCase();
+    }
+    const body = el('div', 'ta-body');
+    const link = el('a', 'ta-name', item.name);
+    link.href = item.url;
+    body.append(link);
+    body.append(el('span', 'ta-meta',
+      [item.part_number, item.location].filter(Boolean).join(' · ') || 'no location set'));
+
+    const count = el('output', 'big-qty', String(item.quantity));
+    const minus = el('button', 'btn', '−');
+    const plus = el('button', 'btn', '+');
+    minus.type = plus.type = 'button';
+
+    const step = (delta) => async () => {
+      const body = new URLSearchParams({ delta: String(delta) });
+      const res = await fetch('/items/' + item.id + '/quantity', {
+        method: 'POST', headers: { Accept: 'application/json' }, body,
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      count.textContent = data.quantity;
+      count.classList.toggle('zero', data.quantity === 0);
+    };
+    minus.addEventListener('click', step(-1));
+    plus.addEventListener('click', step(1));
+
+    const qty = el('div', 'qtybox');
+    qty.append(minus, count, plus);
+
+    row.append(thumb, body, qty);
+    hit.append(row);
+  }
+
+  function el(tag, cls, text) {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  startBtn.addEventListener('click', start);
+  stopBtn.addEventListener('click', stop);
+  window.addEventListener('pagehide', stop);
+});

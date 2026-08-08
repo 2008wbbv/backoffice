@@ -73,6 +73,9 @@
 {{if $p.Shortfall}}
 <section class="panel-block">
   <div class="section-head"><h2>What you still need</h2>
+    <form method="post" action="/projects/{{$p.ID}}/order">
+      <button class="btn tiny primary" type="submit">Draft an order for it</button>
+    </form>
     <a class="chip sm" href="/projects/{{$p.ID}}/shopping-list.csv">Download list</a></div>
   <ul class="rows">
     {{range $p.Shortfall}}
@@ -95,7 +98,7 @@
   </ul>
 </section>
 {{else if $p.Parts}}
-<div class="toast ok">Everything on this list is on the shelf.</div>
+<div class="toast ok standalone">Everything on this list is on the shelf.</div>
 {{end}}
 
 {{if $pins.Controller}}
@@ -151,6 +154,74 @@
 </section>
 {{end}}
 
+<section class="panel-block" id="pins">
+  <div class="section-head">
+    <h2>Pin map</h2>
+    {{if $d.Wiring}}<a class="chip sm" href="/projects/{{$p.ID}}/wiring.csv">Wiring card</a>{{end}}
+  </div>
+
+  {{range $d.PinClashes}}<div class="toast bad inline">⚠ {{.}}</div>{{end}}
+
+  {{if $d.Wiring}}
+  <table class="wiring">
+    <thead><tr><th>Pin</th><th>Goes to</th><th>Signal</th><th>Note</th><th></th></tr></thead>
+    <tbody>
+      {{range $d.Wiring}}
+      <tr{{if .Clashes}} class="clash"{{end}}>
+        <td><code>{{.Pin}}</code></td>
+        <td>{{if .Item}}<a href="/items/{{.ItemRef}}">{{.Where}}</a>{{else}}{{.Where}}{{end}}</td>
+        <td>{{.Signal}}</td>
+        <td class="muted">{{.Note}}{{if .Clashes}} <span class="warn">clashes with {{range $i, $c := .Clashes}}{{if $i}}, {{end}}{{$c}}{{end}}</span>{{end}}</td>
+        <td>
+          <form method="post" action="/pins/{{.ID}}/delete">
+            <button class="btn tiny danger" type="submit" aria-label="Remove {{.Pin}}">×</button>
+          </form>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <p class="muted">Nothing wired up yet. The budget above counts how many pins this needs;
+    the map records which pin went where, which is the only way to catch the same one used twice.</p>
+  {{end}}
+
+  <form class="price-add" method="post" action="/projects/{{$p.ID}}/pins">
+    <input name="pin" placeholder="GPIO21" aria-label="Pin" required spellcheck="false">
+    <select name="item_id">
+      <option value="">— what it goes to —</option>
+      {{range $d.AllItems}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+    </select>
+    <input name="signal" placeholder="SDA" aria-label="Signal" spellcheck="false">
+    <input name="note" placeholder="Note" aria-label="Note">
+    <button class="btn" type="submit">Wire it</button>
+  </form>
+
+  {{if $d.PinIdeas}}
+  <details class="tuck">
+    <summary>Start from what the parts need ({{len $d.PinIdeas}} connections)</summary>
+    <form method="post" action="/projects/{{$p.ID}}/pins" class="pin-ideas">
+      <p class="muted small">Every part on the list that speaks a bus needs these lines. Fill in
+        the pin numbers you actually used and they all go in at once; leave one blank to skip it.</p>
+      <table class="wiring">
+        <thead><tr><th>Pin</th><th>Goes to</th><th>Signal</th></tr></thead>
+        <tbody>
+          {{range $d.PinIdeas}}
+          <tr>
+            <td><input name="pin" placeholder="GPIO…" size="8" spellcheck="false"
+                       aria-label="Pin for {{.Part}} {{.Signal}}"></td>
+            <td>{{.Part}}<input type="hidden" name="item_id" value="{{.ItemRef}}"><input type="hidden" name="part" value="{{.Part}}"></td>
+            <td><code>{{.Signal}}</code><input type="hidden" name="signal" value="{{.Signal}}"></td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+      <button class="btn" type="submit">Add the ones I filled in</button>
+    </form>
+  </details>
+  {{end}}
+</section>
+
 <section class="panel-block">
   <div class="section-head">
     <h2>Parts list</h2>
@@ -173,6 +244,10 @@
           {{if .Item.Thumb}}<img src="/media/thumb/{{.Item.Thumb}}" alt="" loading="lazy">
           {{else}}<span class="noimg tiny">{{initials .Label}}</span>{{end}}
           <a class="row-name" href="/items/{{.Item.ID}}">{{.Label}}</a>
+        {{else if .IsAssembly}}
+          <span class="noimg tiny">🧩</span>
+          <a class="row-name" href="/projects/{{.SubRef}}">{{.Label}}</a>
+          <span class="muted">sub-assembly — {{.Buildable}} buildable from stock</span>
         {{else}}
           <span class="noimg tiny">?</span>
           <span class="row-name">{{.Label}} <span class="muted">(not in inventory)</span></span>
@@ -200,6 +275,23 @@
     <input name="quantity" type="number" min="1" value="1" aria-label="Quantity needed">
     <button class="btn" type="submit">Add part</button>
   </form>
+
+  {{if $d.Assemblies}}
+  <details class="tuck">
+    <summary>Use another project as a sub-assembly</summary>
+    <form class="price-add" method="post" action="/projects/{{$p.ID}}/sub">
+      <select name="sub_project_id" required>
+        <option value="">— a project to build and put inside this one —</option>
+        {{range $d.Assemblies}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+      </select>
+      <input name="quantity" type="number" min="1" value="1" aria-label="How many">
+      <button class="btn" type="submit">Add sub-assembly</button>
+    </form>
+    <p class="muted small">Its own parts count towards this project's shortfall, its reservations
+      and what building this takes off the shelf — so a power module you use three times is
+      counted three times.</p>
+  </details>
+  {{end}}
 </section>
 
 <section class="panel-block">

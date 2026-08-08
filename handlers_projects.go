@@ -30,8 +30,12 @@ type projectData struct {
 	Suggestions []Item
 	AllItems    []Item
 	Pins        PinBudget
+	Wiring      []PinAssignment
+	PinIdeas    []PinAssignment
+	PinClashes  []string
 	Log         []LogEntry
 	Statuses    []string
+	Assemblies  []Project // other projects that could go inside this one
 }
 
 func (a *App) handleProject(w http.ResponseWriter, r *http.Request) {
@@ -64,14 +68,36 @@ func (a *App) handleProject(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err, http.StatusInternalServerError)
 		return
 	}
+	wiring, err := a.store.PinAssignments(id)
+	if err != nil {
+		a.fail(w, err, http.StatusInternalServerError)
+		return
+	}
+	projects, err := a.store.ListProjects()
+	if err != nil {
+		a.fail(w, err, http.StatusInternalServerError)
+		return
+	}
+	// Anything but this project itself; the cycle guard catches the rest when
+	// the line is actually added.
+	assemblies := make([]Project, 0, len(projects))
+	for _, other := range projects {
+		if other.ID != id {
+			assemblies = append(assemblies, other)
+		}
+	}
 
 	a.render(w, r, "project.html", p.Name, projectData{
 		Project:     p,
 		Suggestions: suggestions,
 		AllItems:    all,
 		Pins:        BudgetPins(p),
+		Wiring:      wiring,
+		PinIdeas:    SuggestPins(p, wiring),
+		PinClashes:  PinConflicts(wiring),
 		Log:         entries,
 		Statuses:    ProjectStatuses,
+		Assemblies:  assemblies,
 	})
 }
 

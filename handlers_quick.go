@@ -52,7 +52,7 @@ func (a *App) handleQuickAdd(w http.ResponseWriter, r *http.Request) {
 
 	var problems []string
 	if meta.ImageURL != "" {
-		if msg := a.savePhotoFromURL(r, id, meta.ImageURL); msg != "" {
+		if msg := a.savePhotoFromURL(r.Context(), id, meta.ImageURL); msg != "" {
 			problems = append(problems, "photo: "+msg)
 		}
 	}

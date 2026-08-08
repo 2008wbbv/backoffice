@@ -392,6 +392,15 @@ func (s *Store) ImportBOM(projectID int64, lines []BOMLine, replace bool) (int, 
 		if l.Match != nil {
 			id := l.Match.ID
 			itemID, name = &id, ""
+			// A schematic knows the land pattern; the inventory usually does
+			// not. Fill it in when it is missing, but never overwrite one
+			// somebody chose.
+			if l.Footprint != "" && l.Match.Footprint == "" {
+				if _, err := tx.Exec(`UPDATE items SET footprint = ? WHERE id = ? AND footprint = ''`,
+					l.Footprint, id); err != nil {
+					return 0, err
+				}
+			}
 		}
 		_, err := tx.Exec(`INSERT INTO project_parts (project_id, item_id, name, quantity, note)
 			VALUES (?,?,?,?,?)`, projectID, itemID, name, qty, note)

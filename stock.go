@@ -72,28 +72,21 @@ func (i Item) Threshold() int {
 // promised to a build are not parts you can use.
 func (i Item) Low() bool { return i.Available() <= i.Threshold() }
 
-// attachClaims loads, in one query, which building projects have claimed each
-// item on the page.
+// attachClaims records which building projects have spoken for each item on the
+// page. Claims come from the flattened requirement, so a project that reaches a
+// part through a sub-assembly holds it just as firmly as one that lists it
+// directly.
 func (s *Store) attachClaims(items []Item, byID map[int64]int) error {
-	rows, err := s.db.Query(`SELECT pp.item_id, p.id, p.name, SUM(pp.quantity)
-		FROM project_parts pp JOIN projects p ON p.id = pp.project_id
-		WHERE pp.item_id IS NOT NULL AND p.status = 'building' AND p.consumed_at = ''
-		GROUP BY pp.item_id, p.id ORDER BY p.name COLLATE NOCASE`)
+	claims, err := s.claimsByItem()
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var itemID int64
-		var c Commitment
-		if err := rows.Scan(&itemID, &c.ProjectID, &c.Project, &c.Quantity); err != nil {
-			return err
-		}
+	for itemID, cs := range claims {
 		if idx, ok := byID[itemID]; ok {
-			items[idx].Claims = append(items[idx].Claims, c)
+			items[idx].Claims = append(items[idx].Claims, cs...)
 		}
 	}
-	return rows.Err()
+	return nil
 }
 
 // SetThreshold changes the low-stock line for one item.
@@ -161,6 +154,16 @@ func (s *Store) ConsumeProject(id int64) (taken int, short int, err error) {
 		return 0, 0, fmt.Errorf("this project's parts have already been taken off the shelf")
 	}
 
+	// Several lines can point at the same item, and a sub-assembly reaches
+	// items that are not on this list at all, so the flattened requirement is
+	// what gets taken -- the same figure the reservation used. It is worked out
+	// before the transaction opens: the pool holds one connection, so a query
+	// issued while a transaction is live would wait on itself forever.
+	wanted, err := s.Requirements(id)
+	if err != nil {
+		return 0, 0, err
+	}
+
 	tx, err := s.db.Begin()
 	if err != nil {
 		return 0, 0, err
@@ -168,18 +171,15 @@ func (s *Store) ConsumeProject(id int64) (taken int, short int, err error) {
 	defer tx.Rollback()
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	// Several lines can point at the same item, so total them first.
-	wanted := map[int64]int{}
-	var order []int64
+	order := make([]int64, 0, len(wanted))
+	for itemID := range wanted {
+		order = append(order, itemID)
+	}
+	sort.Slice(order, func(i, j int) bool { return order[i] < order[j] })
 	for _, part := range p.Parts {
-		if part.ItemID == nil {
-			short += part.Quantity
-			continue
+		if part.ItemID == nil && part.SubProjectID == nil {
+			short += part.Quantity // named but not owned, so nothing to take
 		}
-		if _, seen := wanted[*part.ItemID]; !seen {
-			order = append(order, *part.ItemID)
-		}
-		wanted[*part.ItemID] += part.Quantity
 	}
 
 	for _, itemID := range order {

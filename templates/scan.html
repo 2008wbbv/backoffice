@@ -1,0 +1,47 @@
+{{define "scan.html"}}
+{{template "top" .}}
+
+<nav class="crumb"><a href="/">Dashboard</a><span class="sep">/</span><span class="here">Scan</span></nav>
+
+<div class="folder-head"><h1>Scan a label</h1></div>
+
+<div class="scanner" data-scanner>
+  <div class="scan-stage" hidden data-scan-stage>
+    <video data-scan-video playsinline muted></video>
+    <div class="scan-reticle"></div>
+  </div>
+
+  <p class="muted" data-scan-status>Checking whether this browser can use the camera…</p>
+
+  <div class="actions">
+    <button class="btn primary" type="button" data-scan-start hidden>Start the camera</button>
+    <button class="btn" type="button" data-scan-stop hidden>Stop</button>
+  </div>
+
+  <!-- Works with the camera off, with JavaScript off, and on browsers whose
+       barcode support does not exist: type or paste the code. -->
+  <form class="search" method="get" action="/lookup">
+    <input type="search" name="code" placeholder="…or type the code under the barcode"
+           autocomplete="off" spellcheck="false" data-scan-manual>
+    <button class="btn" type="submit">Find it</button>
+  </form>
+
+  <!-- Where a successful scan lands, so the camera can stay running. -->
+  <div class="scan-hit" hidden data-scan-hit></div>
+</div>
+
+<section class="panel-block">
+  <div class="section-head"><h2>What it reads</h2></div>
+  <ul class="rows plain">
+    <li><span class="row-item"><b class="row-name">This app's QR labels</b>
+      <span class="muted">the code carries the item's own address, so it opens straight to the part</span></span></li>
+    <li><span class="row-item"><b class="row-name">This app's barcodes</b>
+      <span class="muted">the part number, or <code>BO-&lt;id&gt;</code> when a part has none</span></span></li>
+    <li><span class="row-item"><b class="row-name">The manufacturer's barcode</b>
+      <span class="muted">on the bag it arrived in — matched against your part numbers</span></span></li>
+  </ul>
+  <p class="muted">Print labels for a whole drawer from the <a href="/labels">Labels</a> page.</p>
+</section>
+
+{{template "bottom" .}}
+{{end}}

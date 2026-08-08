@@ -406,14 +406,19 @@ func (p Project) ControllerRef() int64 {
 // ProjectPart is one line of a project's bill of materials. It either points at
 // something on the shelf or names something not owned yet.
 type ProjectPart struct {
-	ID       int64
-	ItemID   *int64
-	Name     string
-	Quantity int
-	Note     string
+	ID           int64
+	ItemID       *int64
+	SubProjectID *int64 // a sub-assembly: another project used as a part
+	Name         string
+	Quantity     int
+	Note         string
 
 	// Filled in when the line points at a real item.
 	Item *Item
+	// Filled in when the line points at another project. Buildable is how many
+	// complete copies of it the shelf could supply right now.
+	Sub       *Project
+	Buildable int
 	// How many of that item other projects being built have claimed. This is
 	// what makes two projects that each look satisfied stop looking satisfied
 	// when between them they need more than you own.
@@ -423,25 +428,46 @@ type ProjectPart struct {
 
 // Label is what to call this line: the item's name when it is owned, otherwise
 // whatever was typed.
+// IsAssembly reports whether this line is another project rather than a part.
+func (p ProjectPart) IsAssembly() bool { return p.SubProjectID != nil }
+
+func (p ProjectPart) SubRef() int64 {
+	if p.SubProjectID == nil {
+		return 0
+	}
+	return *p.SubProjectID
+}
+
 func (p ProjectPart) Label() string {
-	if p.Item != nil {
+	switch {
+	case p.Item != nil:
 		return p.Item.Name
+	case p.Sub != nil:
+		return p.Sub.Name
 	}
 	return p.Name
 }
 
 // Have is how many are on the shelf. A line for a part you do not own has none
-// by definition.
+// by definition; a sub-assembly has as many as its own parts could make.
 func (p ProjectPart) Have() int {
-	if p.Item == nil {
-		return 0
+	switch {
+	case p.Item != nil:
+		return p.Item.Quantity
+	case p.SubProjectID != nil:
+		return p.Buildable
 	}
-	return p.Item.Quantity
+	return 0
 }
 
 // Free is how many this project can actually get its hands on: what is on the
-// shelf, less what other projects being built have already claimed.
+// shelf, less what other projects being built have already claimed. A
+// sub-assembly's buildable count is already measured against free stock, so
+// there is nothing further to subtract.
 func (p ProjectPart) Free() int {
+	if p.SubProjectID != nil {
+		return p.Buildable
+	}
 	if n := p.Have() - p.Claimed; n > 0 {
 		return n
 	}
@@ -599,7 +625,7 @@ func (s *Store) GetProject(id int64) (Project, error) {
 // projectParts loads a bill of materials, resolving each line that points at
 // something owned into the full item so stock and price are available.
 func (s *Store) projectParts(projectID int64) ([]ProjectPart, error) {
-	rows, err := s.db.Query(`SELECT id, item_id, name, quantity, note
+	rows, err := s.db.Query(`SELECT id, item_id, sub_project_id, name, quantity, note
 		FROM project_parts WHERE project_id = ? ORDER BY id`, projectID)
 	if err != nil {
 		return nil, err
@@ -607,19 +633,27 @@ func (s *Store) projectParts(projectID int64) ([]ProjectPart, error) {
 	defer rows.Close()
 
 	var parts []ProjectPart
-	var itemIDs []int64
+	var itemIDs, subIDs []int64
 	for rows.Next() {
 		var p ProjectPart
-		if err := rows.Scan(&p.ID, &p.ItemID, &p.Name, &p.Quantity, &p.Note); err != nil {
+		if err := rows.Scan(&p.ID, &p.ItemID, &p.SubProjectID, &p.Name, &p.Quantity, &p.Note); err != nil {
 			return nil, err
 		}
 		if p.ItemID != nil {
 			itemIDs = append(itemIDs, *p.ItemID)
 		}
+		if p.SubProjectID != nil {
+			subIDs = append(subIDs, *p.SubProjectID)
+		}
 		parts = append(parts, p)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	if len(subIDs) > 0 {
+		if err := s.attachSubAssemblies(parts); err != nil {
+			return nil, err
+		}
 	}
 	if len(itemIDs) == 0 {
 		return parts, nil
@@ -782,4 +816,49 @@ func (s *Store) SuggestForProject(p Project, limit int) ([]Item, error) {
 		out = append(out, h.item)
 	}
 	return out, nil
+}
+
+// attachSubAssemblies fills in each sub-assembly line: what the sub-project is
+// called, and how many complete copies of it the shelf could supply right now.
+func (s *Store) attachSubAssemblies(parts []ProjectPart) error {
+	boms, err := s.loadBOMs()
+	if err != nil {
+		return err
+	}
+	items, err := s.ListItems(Query{})
+	if err != nil {
+		return err
+	}
+	free := make(map[int64]int, len(items))
+	for _, it := range items {
+		free[it.ID] = it.Available()
+	}
+
+	names := map[int64]string{}
+	rows, err := s.db.Query(`SELECT id, name FROM projects`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return err
+		}
+		names[id] = name
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for i := range parts {
+		if parts[i].SubProjectID == nil {
+			continue
+		}
+		id := *parts[i].SubProjectID
+		parts[i].Sub = &Project{ID: id, Name: names[id]}
+		parts[i].Buildable = buildable(boms, id, free)
+	}
+	return nil
 }

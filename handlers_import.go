@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -53,7 +54,7 @@ func (a *App) handlePhotoFromURL(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, dest, "", "paste an image or page URL first")
 		return
 	}
-	if msg := a.savePhotoFromURL(r, id, raw); msg != "" {
+	if msg := a.savePhotoFromURL(r.Context(), id, raw); msg != "" {
 		redirect(w, r, dest, "", msg)
 		return
 	}
@@ -64,24 +65,24 @@ func (a *App) handlePhotoFromURL(w http.ResponseWriter, r *http.Request) {
 // failure and "" on success. A URL that turns out to be a web page rather than
 // an image is retried against that page's preview image, which is what happens
 // when someone pastes a product listing instead of a direct image link.
-func (a *App) savePhotoFromURL(r *http.Request, itemID int64, raw string) string {
+func (a *App) savePhotoFromURL(ctx context.Context, itemID int64, raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return ""
 	}
 
-	body, err := a.fetcher.FetchImage(r.Context(), raw)
+	body, err := a.fetcher.FetchImage(ctx, raw)
 	if err != nil {
 		return err.Error()
 	}
 
 	name, saveErr := a.photos.Save(bytes.NewReader(body), lastPathSegment(raw))
 	if saveErr != nil {
-		meta, pageErr := a.fetcher.FetchPage(r.Context(), raw)
+		meta, pageErr := a.fetcher.FetchPage(ctx, raw)
 		if pageErr != nil || meta.ImageURL == "" {
 			return saveErr.Error()
 		}
-		if body, err = a.fetcher.FetchImage(r.Context(), meta.ImageURL); err != nil {
+		if body, err = a.fetcher.FetchImage(ctx, meta.ImageURL); err != nil {
 			return err.Error()
 		}
 		if name, err = a.photos.Save(bytes.NewReader(body), lastPathSegment(meta.ImageURL)); err != nil {

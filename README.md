@@ -203,6 +203,28 @@ says today, which may have changed since.
 A line the shelf can't cover is deducted down to zero rather than driving stock
 negative, and the shortfall is reported.
 
+### Orders
+
+An order is what closes the loop. A project says what it is short of, **Draft an
+order for it** turns that into orders — *one per shop*, since that is how you
+actually buy — and **Mark arrived** puts the parts on the shelf without counting
+anything by hand.
+
+Receiving is the exact inverse of building a project, and records enough to be
+undone: **Un-receive** takes back precisely what it added. It also records what
+you *actually paid* as that part's price, and how long the delivery *actually
+took* as that shop's lead time.
+
+That last part accumulates into something useful. The orders page shows how long
+each shop really takes, measured from your own deliveries rather than from its
+website:
+
+> LCSC — 19 days on average over 4 orders (between 16 and 23) — 7 days slower
+> than the 12 days quoted
+
+Parts on their way show as **on order** on the item page, so something that is
+out of stock but already bought doesn't look like something to buy again.
+
 ### Bills of materials
 
 **Import a BOM** on a project reads a CSV from KiCad, EasyEDA, Altium or a
@@ -240,6 +262,45 @@ It also flags the two mistakes that cost an afternoon:
 - **Logic level mismatches** — a 5 V part hung off a 3.3 V board, with a nudge
   towards a level shifter.
 
+### Scanning labels
+
+**Scan** points a phone camera at a drawer and lands on that part, with the
+count buttons under your thumb — the half that makes the printed labels worth
+printing. It reads this app's QR labels, its barcodes, and the manufacturer's
+own barcode on the bag a part arrived in, matched against your part numbers.
+
+The scanning uses the browser's own `BarcodeDetector`, so no library ships with
+the page and nothing about the image leaves the device. That API exists in
+Chrome (including on Android, which is the phone you'd be holding); Firefox and
+Safari don't have it, so there the page says so and the field beside it takes a
+typed code instead. A successful scan is shown *in place* rather than navigated
+to, so the camera keeps running and a whole drawer can be counted in one go.
+
+### Sub-assemblies
+
+A project can be used as a line inside another project: a 5 V supply module you
+design once and then put inside three different things.
+
+Its own parts count towards the parent's shortfall, its reservations, and what
+building the parent takes off the shelf — so a module used three times is
+counted three times, right down through however many levels deep it goes. A
+sub-assembly line says how many complete copies the shelf could supply
+(*"3 buildable from stock"*), and a project that would end up containing itself
+is refused rather than looping.
+
+### Pin map
+
+The budget counts pins. The map records *which* pin went where, which is the only
+way to catch the mistake counting cannot see: the same pin used twice.
+
+`GPIO21`, `gpio 21`, `IO21` and `io_21` are recognised as one pin, so a clash is
+caught however it was spelled. Power rails and bus lines are exempt, because
+several devices on `SDA` is what a bus is — but the same pin carrying SDA for one
+part and CS for another is flagged on both rows. **Start from what the parts
+need** proposes every connection the parts imply (an I2C sensor needs SDA and
+SCL, and there is no guessing involved); fill in the pin numbers you used and
+they all go in at once. **Wiring card** exports the lot as CSV for the bench.
+
 ### Build log
 
 A dated notebook per project: what you did, what it measured, which pin you got
@@ -261,10 +322,44 @@ drive the project suggestions.
 **Specifications** are free-form `name: value` lines — "Logic level: 3.3V",
 "Flash: 8MB" — typed one per line and shown as a table.
 
+**Find documentation** does the hunt for you. It follows the item's product link,
+searches the shops it can reach by part number, asks Octopart if it is
+configured — and then follows the trail one hop further, because that is where
+the documents actually are. A product page links a *learn guide*; the guide has a
+*pinouts* page; the diagrams are on that. Following that chain is the difference
+between finding nothing and finding this, for a HUZZAH32:
+
+> Found 5 pinouts and 3 documents and a photo — from adafruit.com, Pimoroni,
+> learn.adafruit.com
+
+Pinout and schematic **images are downloaded**, so they display on the item page
+and survive the source going away; datasheets stay links, since a datasheet is
+better fetched fresh than kept stale. A part with no photo gets one from the same
+page. Running it twice adds nothing twice.
+
 **References** are datasheets, pinouts, manuals and schematics. A reference can be
 a link or a stored image. A pinout given as a URL is *downloaded*, so it shows on
 the page and survives the source moving it; if the image can't be fetched the link
 is still kept, and the page says why it stayed a link.
+
+### Footprints
+
+Give a part a KiCad footprint name and its land pattern is **drawn to scale** on
+the item page: pads, drill holes, silkscreen outline, the courtyard it claims on
+the board, and a ring round pin 1 so you can see which way round it goes. Under
+it: the real size in millimetres, the pad pitch (and whether that is breadboard
+0.1"), the pad count and whether it is through-hole or surface mount.
+
+`Resistor_SMD:R_0805_2012Metric` is taken at its word; a bare `R_0805_2012Metric`
+has its library guessed. A **BOM import fills this in on its own**, since a
+schematic's footprint column is exactly this. For anything not in the official
+library, upload the `.kicad_mod`.
+
+The file is fetched once from KiCad's own library — the project's GitLab, falling
+back to its GitHub mirror — and then cached, so the drawing works offline and an
+item page never waits on the network. Nothing is added to the binary to do this:
+a `.kicad_mod` is an s-expression, so it is parsed and rendered to SVG in about
+500 lines rather than by pulling in a dependency.
 
 ### Octopart
 
@@ -378,6 +473,7 @@ three-column grid on white, and labels never break across pages.
   it imports; drag an image file and it goes into the photo picker.
 - **Keyboard** — `/` focuses search, `n` opens the add form.
 - **CSV** — the `CSV` button exports the full inventory, folders and tags included.
+- **Footprint** — a land pattern drawn to scale, with the part's real size in mm.
 - **Reorder at** — each item has its own low-stock line, set on its edit page.
   Two Raspberry Pis is plenty; two 0805 resistors is nothing. The dashboard's
   *Running low* list measures **free** stock, so parts reserved by a build in
@@ -468,7 +564,8 @@ Entries older than 90 days can be pruned from the admin page.
 ```sh
 go test ./...     # store, search, tags, folders, prices, photos, EXIF, SSRF, HTTP,
                   # reservations, BOM parsing, calculators, pin budget, backup/restore,
-                  # accounts, and the upgrade path from an older schema
+                  # accounts, orders, scanning, sub-assemblies, pin maps, KiCad
+                  # footprint parsing, and the upgrade path from an older schema
 go vet ./...
 ```
 

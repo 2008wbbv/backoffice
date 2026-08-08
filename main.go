@@ -247,6 +247,33 @@ func (a *App) routes() http.Handler {
 	protected.HandleFunc("POST /projects/{id}/log", a.handleAddLogEntry)
 	protected.HandleFunc("POST /log/{id}/delete", a.handleDeleteLogEntry)
 
+	// Sub-assemblies and the pin map.
+	protected.HandleFunc("POST /projects/{id}/sub", a.handleAddSubAssembly)
+	protected.HandleFunc("POST /projects/{id}/pins", a.handleAddPin)
+	protected.HandleFunc("POST /pins/{id}/delete", a.handleDeletePin)
+	protected.HandleFunc("GET /projects/{id}/wiring.csv", a.handleWiringCSV)
+
+	// Orders: what you bought, and putting it on the shelf when it turns up.
+	protected.HandleFunc("GET /orders", a.handleOrders)
+	protected.HandleFunc("POST /orders", a.handleCreateOrder)
+	protected.HandleFunc("GET /orders/{id}", a.handleOrder)
+	protected.HandleFunc("POST /orders/{id}", a.handleUpdateOrder)
+	protected.HandleFunc("POST /orders/{id}/delete", a.handleDeleteOrder)
+	protected.HandleFunc("POST /orders/{id}/lines", a.handleAddOrderLine)
+	protected.HandleFunc("POST /order-lines/{id}/delete", a.handleDeleteOrderLine)
+	protected.HandleFunc("POST /orders/{id}/receive", a.handleReceiveOrder)
+	protected.HandleFunc("POST /orders/{id}/unreceive", a.handleUnreceiveOrder)
+	protected.HandleFunc("POST /projects/{id}/order", a.handleOrderFromShortfall)
+
+	// Reading the labels back: a phone camera pointed at a drawer.
+	protected.HandleFunc("GET /scan", a.handleScan)
+	protected.HandleFunc("GET /lookup", a.handleLookup)
+	protected.HandleFunc("POST /lookup", a.handleLookup)
+
+	// Documentation and land patterns.
+	protected.HandleFunc("POST /items/{id}/docs", a.handleFindDocs)
+	protected.HandleFunc("POST /items/{id}/footprint", a.handleSetFootprint)
+
 	// Bench calculators, wired to what is on the shelf.
 	protected.HandleFunc("GET /tools", a.handleTools)
 
