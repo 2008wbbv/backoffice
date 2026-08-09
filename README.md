@@ -52,6 +52,7 @@ Everything is optional. The defaults are the intended setup.
 | `SHOPIFY_SHOPS` | `thepihut.com,shop.pimoroni.com` | Shopify storefronts to search, comma separated. `none` disables them. |
 | `NEXAR_CLIENT_ID` / `NEXAR_CLIENT_SECRET` | *(unset)* | Octopart credentials. The app mints and renews its own tokens. |
 | `NEXAR_TOKEN` | *(unset)* | A pasted Nexar access token, for a quick try. These expire in 24 hours. |
+| `THINGIVERSE_TOKEN` | *(unset)* | Free app token, to search Thingiverse for cases. Printables needs nothing. |
 | `ALLOW_PRIVATE_FETCH` | *(unset)* | Let "import from a link" reach LAN addresses. See below. |
 | `TZ` | `UTC` | Affects the "updated 3 hours ago" timestamps. |
 
@@ -361,6 +362,49 @@ item page never waits on the network. Nothing is added to the binary to do this:
 a `.kicad_mod` is an s-expression, so it is parsed and rendered to SVG in about
 500 lines rather than by pulling in a dependency.
 
+### Cases and 3D models
+
+**Find a case** on any part searches the model sites for something somebody has
+already drawn for it — a case, a bracket, a DIN-rail mount — and shows the
+renders, the author, and the download count, which is the only real review
+signal those sites have. A model printed ten thousand times works.
+
+[Printables](https://www.printables.com) is searched through the same API its own
+website uses: no key, no account. [Thingiverse](https://www.thingiverse.com) joins
+in if you set `THINGIVERSE_TOKEN` (free, but it does mean registering).
+MakerWorld, Thangs, Cults3D and GrabCAD serve a bot challenge or a signed-in-only
+page to anything that is not a browser, so rather than pretend, the page offers
+their own searches as links — paste the result back to keep it.
+
+Thumbnails are fetched through the app rather than by your browser, so opening a
+page of results does not tell the model site who you are, and the pictures still
+appear on an install with no direct internet access. That proxy only serves the
+model sites it searches; it is not a general-purpose one pointed at your network.
+
+### Measuring a model before you print it
+
+A site's thumbnail is somebody's render. The mesh is the thing that has to fit.
+
+Give a kept model its **STL** — upload it, or paste a direct link — and the
+geometry is read, measured and drawn:
+
+> Raspberry Pi 5 case is 60.0 × 31.0 × 48.0 mm (225.7k triangles)
+
+with a shaded three-quarter view generated from the actual triangles, and a
+warning when it will not fit a 220 × 220 × 250 mm bed in one piece. Both spellings
+of STL are read — binary and ASCII — and the file's *length* decides which,
+because plenty of exporters write the word "solid" into a binary file's header.
+
+The STL itself is **not kept**: only its measurements and the drawing. A hundred
+models at forty megabytes each is not something an inventory should quietly start
+storing on your behalf, and the file is still on the model site, which is where
+the link goes.
+
+As with the footprints, nothing was added to the binary to do this. An STL is a
+triangle soup, so it is parsed and rasterised with a z-buffer straight to a PNG —
+a real print is a couple of hundred thousand triangles, and an SVG with that many
+paths in it is not a preview, it is a denial of service on the browser.
+
 ### Octopart
 
 Octopart is different from the shops: it indexes *parts*, so a lookup by
@@ -474,6 +518,7 @@ three-column grid on white, and labels never break across pages.
 - **Keyboard** — `/` focuses search, `n` opens the add form.
 - **CSV** — the `CSV` button exports the full inventory, folders and tags included.
 - **Footprint** — a land pattern drawn to scale, with the part's real size in mm.
+- **Cases** — printable models found, kept, measured and drawn from their own geometry.
 - **Reorder at** — each item has its own low-stock line, set on its edit page.
   Two Raspberry Pis is plenty; two 0805 resistors is nothing. The dashboard's
   *Running low* list measures **free** stock, so parts reserved by a build in
@@ -565,7 +610,8 @@ Entries older than 90 days can be pruned from the admin page.
 go test ./...     # store, search, tags, folders, prices, photos, EXIF, SSRF, HTTP,
                   # reservations, BOM parsing, calculators, pin budget, backup/restore,
                   # accounts, orders, scanning, sub-assemblies, pin maps, KiCad
-                  # footprint parsing, and the upgrade path from an older schema
+                  # footprint parsing, STL parsing and rendering, model search,
+                  # and the upgrade path from an older schema
 go vet ./...
 ```
 

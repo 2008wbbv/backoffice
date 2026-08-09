@@ -132,11 +132,22 @@ func (o Order) Overdue() bool {
 }
 
 // TookDays is how long the order actually took, once it has arrived.
-func (o Order) TookDays() int {
-	if o.PlacedAt.IsZero() || o.ArrivedAt.IsZero() {
+func (o Order) TookDays() int { return daysBetween(o.PlacedAt, o.ArrivedAt) }
+
+// daysBetween counts whole days from one moment to another.
+//
+// Both ends are truncated to their date first, because they do not arrive at
+// the same precision: a placed date comes from a date picker and is midnight,
+// while an arrival is the instant somebody pressed the button. Subtracting one
+// from the other directly adds however many hours into the day it happened to
+// be, which turns an 18-day delivery into a 19-day one.
+func daysBetween(from, to time.Time) int {
+	if from.IsZero() || to.IsZero() {
 		return 0
 	}
-	return int(math.Round(o.ArrivedAt.Sub(o.PlacedAt).Hours() / 24))
+	a := time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, time.UTC)
+	b := time.Date(to.Year(), to.Month(), to.Day(), 0, 0, 0, 0, time.UTC)
+	return int(math.Round(b.Sub(a).Hours() / 24))
 }
 
 // --- storage ----------------------------------------------------------------
@@ -419,10 +430,7 @@ func (s *Store) ReceiveOrder(id int64) (received int, err error) {
 
 	// How long it really took, measured against the arrival just recorded --
 	// the copy of the order loaded above still says it has not arrived.
-	lead := 0
-	if !o.PlacedAt.IsZero() {
-		lead = int(math.Round(arrivedAt.Sub(o.PlacedAt).Hours() / 24))
-	}
+	lead := daysBetween(o.PlacedAt, arrivedAt)
 	if lead <= 0 {
 		lead = DefaultLeadDays(o.Source)
 	}
@@ -596,7 +604,7 @@ func (s *Store) LeadTimes() ([]LeadTimeActual, error) {
 		if p.IsZero() || a.IsZero() || a.Before(p) {
 			continue
 		}
-		byShop[source] = append(byShop[source], int(math.Round(a.Sub(p).Hours()/24)))
+		byShop[source] = append(byShop[source], daysBetween(p, a))
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

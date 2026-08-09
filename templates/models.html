@@ -1,0 +1,83 @@
+{{define "models.html"}}
+{{template "top" .}}
+{{$d := .Data}}{{$it := $d.Item}}
+
+<nav class="crumb"><a href="/items">All items</a><span class="sep">/</span>
+  <a href="/items/{{$it.ID}}">{{$it.Name}}</a><span class="sep">/</span><span class="here">Cases &amp; models</span></nav>
+
+<div class="folder-head"><h1>A case for {{$it.Name}}</h1></div>
+
+<form class="search" method="get" action="/items/{{$it.ID}}/models">
+  <input type="search" name="q" value="{{$d.Query}}" autocomplete="off"
+         placeholder="What the case is for — “ESP32 devkit case”">
+  <button class="btn primary" type="submit">Search</button>
+</form>
+
+{{if $d.Suggested}}
+<div class="filter-row">
+  <span class="filter-label">Try</span>
+  {{range $d.Suggested}}
+  <a class="chip{{if eq $d.Query .}} on{{end}}" href="/items/{{$it.ID}}/models?q={{.}}">{{.}}</a>
+  {{end}}
+</div>
+{{end}}
+
+{{range $d.Notes}}<div class="toast bad inline">{{.}}</div>{{end}}
+
+{{if $d.Results}}
+<p class="muted page-sub">{{len $d.Results}} from {{range $i, $s := $d.Sources}}{{if $i}}, {{end}}{{$s}}{{end}}.
+  Download counts are the only real review signal these sites have — a model printed ten thousand times works.</p>
+
+<ul class="grid models">
+  {{range $d.Results}}
+  <li class="card">
+    <a class="thumb model-thumb" href="{{.URL}}" target="_blank" rel="noreferrer noopener">
+      {{if .ImageURL}}
+        <img src="/media/remote?u={{.ImageURL}}" alt="{{.Title}}" loading="lazy" decoding="async">
+      {{else}}
+        <span class="noimg">◍</span>
+      {{end}}
+      <span class="price-tag">{{.Source}}</span>
+    </a>
+    <div class="body">
+      <a class="name" href="{{.URL}}" target="_blank" rel="noreferrer noopener">{{.Title}}</a>
+      {{if .Author}}<div class="loc">by {{.Author}}</div>{{end}}
+      {{if .Stats}}<div class="val">{{.Stats}}</div>{{end}}
+      <form class="model-keep" method="post" action="/items/{{$it.ID}}/models">
+        <input type="hidden" name="url" value="{{.URL}}">
+        <input type="hidden" name="title" value="{{.Title}}">
+        <input type="hidden" name="source" value="{{.Source}}">
+        <input type="hidden" name="author" value="{{.Author}}">
+        <input type="hidden" name="licence" value="{{.Licence}}">
+        <input type="hidden" name="image_url" value="{{.ImageURL}}">
+        <input type="hidden" name="downloads" value="{{.Downloads}}">
+        <input type="hidden" name="likes" value="{{.Likes}}">
+        <input type="hidden" name="rating" value="{{printf "%.2f" .Rating}}">
+        <button class="btn tiny" type="submit">Keep this one</button>
+      </form>
+    </div>
+  </li>
+  {{end}}
+</ul>
+{{else if $d.Query}}
+<div class="empty small">
+  <p><strong>Nothing found for “{{$d.Query}}”.</strong></p>
+  <p class="muted">Try a broader term — the board's family rather than its exact part number.</p>
+</div>
+{{end}}
+
+<section class="panel-block">
+  <div class="section-head"><h2>Search the sites this cannot reach</h2></div>
+  <p class="muted">These serve a bot challenge or a signed-in-only page to anything that is not
+    a browser, so rather than pretend, here are their own searches. Paste a link back on the
+    item page to keep one.</p>
+  <div class="filter-row">
+    {{range $d.Elsewhere}}
+    <a class="chip" href="{{.SearchURL}}" target="_blank" rel="noreferrer noopener"
+       title="{{.Note}}">{{.Name}} ↗</a>
+    {{end}}
+  </div>
+</section>
+
+{{template "bottom" .}}
+{{end}}

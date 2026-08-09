@@ -260,6 +260,54 @@
         {{end}}
       {{end}}
 
+    <section class="models">
+      <div class="section-head"><h2>Cases &amp; 3D models</h2>
+        <a class="btn tiny" href="/items/{{$it.ID}}/models">Find a case</a>
+      </div>
+
+      {{if $it.Models}}
+      <ul class="model-list">
+        {{range $it.Models}}
+        <li>
+          <div class="model-shot">
+            {{if .Image}}
+              <a href="/media/{{.Image}}" target="_blank" rel="noopener">
+                <img src="/media/thumb/{{.Image}}" alt="{{.Title}}" loading="lazy">
+              </a>
+            {{else}}<span class="noimg">◍</span>{{end}}
+            {{if .Preview}}<span class="model-badge" title="Drawn from the model's own geometry">measured</span>{{end}}
+          </div>
+          <div class="model-body">
+            <a class="row-name" href="{{.URL}}" target="_blank" rel="noreferrer noopener">{{.Title}}</a>
+            <span class="muted">
+              {{.Source}}{{if .Author}} · by {{.Author}}{{end}}{{if .Stats}} · {{.Stats}}{{end}}
+            </span>
+            {{if .Measured}}
+              <span class="model-size">{{.Dimensions}} <span class="muted">· {{.TriangleText}} triangles</span></span>
+            {{else}}
+              <form class="model-mesh" method="post" action="/models/{{.ID}}/mesh" enctype="multipart/form-data">
+                <input type="file" name="stl" accept=".stl,model/stl" aria-label="STL file">
+                <input type="url" name="stl_url" placeholder="…or a direct .stl link" aria-label="STL link">
+                <button class="btn tiny" type="submit">Measure &amp; draw it</button>
+              </form>
+            {{end}}
+            {{if .Licence}}<span class="muted">{{.Licence}}</span>{{end}}
+          </div>
+          <form method="post" action="/models/{{.ID}}/delete" data-confirm="Remove “{{.Title}}”?">
+            <button class="btn tiny danger" type="submit" aria-label="Remove {{.Title}}">×</button>
+          </form>
+        </li>
+        {{end}}
+      </ul>
+      <p class="muted small">The STL is not kept — only its measurements and the drawing. The file
+        stays on the model site, which is where the link goes.</p>
+      {{else}}
+      <p class="muted">No cases kept yet. <a href="/items/{{$it.ID}}/models">Look for one</a> —
+        give it the STL afterwards and the real geometry is measured and drawn, so you know
+        whether it fits before you print it.</p>
+      {{end}}
+    </section>
+
       <details class="tuck">
       <summary>{{if $it.Footprint}}Change{{else}}Set{{end}} the footprint</summary>
       <form class="price-add" method="post" action="/items/{{$it.ID}}/footprint" enctype="multipart/form-data">

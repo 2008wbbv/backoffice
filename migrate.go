@@ -456,6 +456,39 @@ CREATE TABLE footprints (
 );
 `,
 	},
+	{
+		name: "printable models",
+		sql: `
+-- Cases, brackets and mounts somebody has already drawn for a part.
+--
+-- The STL itself is deliberately not kept: the geometry is read once for its
+-- measurements and its preview, and the file stays where it came from. A
+-- hundred models at forty megabytes each is not something a homelab inventory
+-- should be storing on your behalf.
+CREATE TABLE models (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	item_id    INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+	source     TEXT    NOT NULL DEFAULT '',
+	title      TEXT    NOT NULL DEFAULT '',
+	url        TEXT    NOT NULL DEFAULT '',
+	author     TEXT    NOT NULL DEFAULT '',
+	licence    TEXT    NOT NULL DEFAULT '',
+	downloads  INTEGER NOT NULL DEFAULT 0,
+	likes      INTEGER NOT NULL DEFAULT 0,
+	rating     REAL    NOT NULL DEFAULT 0,
+	-- The site's own render, downloaded so it shows on the page.
+	thumb      TEXT    NOT NULL DEFAULT '',
+	-- Our render of the actual mesh, when an STL has been read.
+	preview    TEXT    NOT NULL DEFAULT '',
+	dimensions TEXT    NOT NULL DEFAULT '',
+	triangles  INTEGER NOT NULL DEFAULT 0,
+	note       TEXT    NOT NULL DEFAULT '',
+	position   INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT    NOT NULL
+);
+CREATE INDEX idx_models ON models(item_id, position, id);
+`,
+	},
 }
 
 func migrate(db *sql.DB) error {

@@ -32,7 +32,10 @@ type Config struct {
 	NexarID      string   // Octopart / Nexar OAuth client credentials
 	NexarSecret  string
 	NexarToken   string // a pasted access token; expires within a day
-	AllowPrivate bool   // let URL imports reach LAN addresses
+	// Thingiverse needs a free app token. Printables needs nothing, so model
+	// search works out of the box either way.
+	ThingiverseToken string
+	AllowPrivate     bool // let URL imports reach LAN addresses
 }
 
 func configFromEnv() Config {
@@ -44,9 +47,10 @@ func configFromEnv() Config {
 		BaseURL:  os.Getenv("BASE_URL"),
 		// Credentials come from the environment and are never written to the
 		// database, the templates, or the logs.
-		NexarID:     os.Getenv("NEXAR_CLIENT_ID"),
-		NexarSecret: os.Getenv("NEXAR_CLIENT_SECRET"),
-		NexarToken:  os.Getenv("NEXAR_TOKEN"),
+		NexarID:          os.Getenv("NEXAR_CLIENT_ID"),
+		NexarSecret:      os.Getenv("NEXAR_CLIENT_SECRET"),
+		NexarToken:       os.Getenv("NEXAR_TOKEN"),
+		ThingiverseToken: os.Getenv("THINGIVERSE_TOKEN"),
 	}
 	c.ShopifyShops = defaultShopifyShops
 	if raw := strings.TrimSpace(os.Getenv("SHOPIFY_SHOPS")); raw != "" {
@@ -82,6 +86,7 @@ type App struct {
 	auth    *Auth
 	fetcher *Fetcher
 	search  *SearchHub
+	models  *ModelHub
 	started time.Time
 }
 
@@ -124,6 +129,7 @@ func main() {
 		auth:    auth,
 		fetcher: fetcher,
 		search:  NewSearchHub(fetcher, cfg),
+		models:  NewModelHub(fetcher, cfg),
 		started: time.Now(),
 	}
 
@@ -273,6 +279,13 @@ func (a *App) routes() http.Handler {
 	// Documentation and land patterns.
 	protected.HandleFunc("POST /items/{id}/docs", a.handleFindDocs)
 	protected.HandleFunc("POST /items/{id}/footprint", a.handleSetFootprint)
+
+	// Cases and mounts somebody has already printed.
+	protected.HandleFunc("GET /items/{id}/models", a.handleModelSearch)
+	protected.HandleFunc("POST /items/{id}/models", a.handleAttachModel)
+	protected.HandleFunc("POST /models/{id}/mesh", a.handleModelMesh)
+	protected.HandleFunc("POST /models/{id}/delete", a.handleDeleteModel)
+	protected.HandleFunc("GET /media/remote", a.handleRemoteImage)
 
 	// Bench calculators, wired to what is on the shelf.
 	protected.HandleFunc("GET /tools", a.handleTools)

@@ -367,7 +367,12 @@ func (f *Fetcher) PostForm(ctx context.Context, target string, form url.Values, 
 	return body, nil
 }
 
-func (f *Fetcher) get(ctx context.Context, target, accept string, limit int64) ([]byte, string, error) {
+// header is an extra request header, for the few sources that authenticate.
+// Credentials belong here rather than in the query string, which would put them
+// in error messages and in whatever logs the far end keeps.
+type header struct{ key, value string }
+
+func (f *Fetcher) get(ctx context.Context, target, accept string, limit int64, extra ...header) ([]byte, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
 
@@ -378,6 +383,9 @@ func (f *Fetcher) get(ctx context.Context, target, accept string, limit int64) (
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", accept)
 	req.Header.Set("Accept-Language", "en")
+	for _, h := range extra {
+		req.Header.Set(h.key, h.value)
+	}
 
 	res, err := f.client.Do(req)
 	if err != nil {

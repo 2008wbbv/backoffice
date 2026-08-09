@@ -37,6 +37,7 @@ type Item struct {
 	Interfaces []string
 	Specs      []Spec
 	Refs       []Reference
+	Models     []Model      // cases and mounts somebody has drawn for this
 	Claims     []Commitment // projects being built that have spoken for this
 }
 
@@ -559,7 +560,7 @@ func (s *Store) GetItem(id int64) (Item, error) {
 	// they are loaded here rather than on every grid render.
 	for _, attach := range []func([]Item, map[int64]int) error{
 		s.attachTags, s.attachPrices, s.attachInterfaces, s.attachClaims,
-		s.attachSpecs, s.attachRefs,
+		s.attachSpecs, s.attachRefs, s.attachModels,
 	} {
 		if err := attach(items, byID); err != nil {
 			return it, err
