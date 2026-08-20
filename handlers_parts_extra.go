@@ -233,9 +233,11 @@ func (a *App) handleWiringCSV(w http.ResponseWriter, r *http.Request) {
 	if p.Controller != nil {
 		controller = p.Controller.Name
 	}
-	cw.Write([]string{"pin", "on", "goes to", "signal", "note", "conflict"})
+	// The wire colour is in the sheet as well as the diagram, so a printout and
+	// the picture on screen tell you to reach for the same reel.
+	cw.Write([]string{"pin", "on", "goes to", "signal", "wire colour", "note", "conflict"})
 	for _, pin := range pins {
-		cw.Write([]string{pin.Pin, controller, pin.Where(), pin.Signal, pin.Note,
-			strings.Join(pin.Clashes, "; ")})
+		cw.Write([]string{pin.Pin, controller, pin.Where(), pin.Signal,
+			wireColourName(pin.Pin, pin.Signal), pin.Note, strings.Join(pin.Clashes, "; ")})
 	}
 }

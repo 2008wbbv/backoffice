@@ -1,0 +1,149 @@
+{{define "welcome.html"}}
+{{template "top" .}}
+{{$d := .Data}}
+
+<div class="wizard">
+  <ol class="steps">
+    <li{{if eq $d.Step "you"}} class="on"{{end}}>Who you are</li>
+    <li{{if or (eq $d.Step "tools") (eq $d.Step "review")}} class="on"{{end}}>What you have</li>
+    <li{{if eq $d.Step "ai"}} class="on"{{end}}>A model, maybe</li>
+    <li{{if eq $d.Step "done"}} class="on"{{end}}>Done</li>
+  </ol>
+
+{{if eq $d.Step "you"}}
+  <h1>Let's set up your bench</h1>
+  <p class="lede">Three questions, all skippable. None of it leaves this machine.</p>
+
+  <form method="post" action="/profile" class="stack">
+    <input type="hidden" name="next" value="/welcome?step=tools">
+    <label>What should I call you?
+      <input name="name" value="{{$d.Profile.Name}}" placeholder="Ben" autofocus>
+    </label>
+    <label>Where do you work?
+      <input name="bench" value="{{$d.Profile.Bench}}" placeholder="garage bench, spare room, kitchen table">
+      <small class="muted">Only used to make suggestions sound less generic.</small>
+    </label>
+    <label>How would you describe yourself?
+      <select name="skill">
+        <option value=""{{if eq $d.Profile.Skill ""}} selected{{end}}>— rather not say —</option>
+        <option value="just starting"{{if eq $d.Profile.Skill "just starting"}} selected{{end}}>Just starting</option>
+        <option value="comfortable"{{if eq $d.Profile.Skill "comfortable"}} selected{{end}}>Comfortable with a soldering iron</option>
+        <option value="experienced"{{if eq $d.Profile.Skill "experienced"}} selected{{end}}>Experienced — I design boards</option>
+      </select>
+    </label>
+    <label>What are you into?
+      <textarea name="interests" rows="2" placeholder="home automation, retro computing, audio, robots">{{$d.Profile.Interests}}</textarea>
+      <small class="muted">This steers the idea board later.</small>
+    </label>
+    <label>Units
+      <select name="units">
+        <option value="mm"{{if ne $d.Profile.Units "in"}} selected{{end}}>Millimetres</option>
+        <option value="in"{{if eq $d.Profile.Units "in"}} selected{{end}}>Inches</option>
+      </select>
+    </label>
+    <div class="actions">
+      <button class="btn primary" type="submit">Next</button>
+      <a class="btn" href="/welcome?step=tools">Skip</a>
+    </div>
+  </form>
+
+{{else if eq $d.Step "tools"}}
+  <h1>What have you got to work with?</h1>
+  <p class="lede">Paste your tools however they are already written. Bullets, headings,
+  model numbers, one per line or all on one line — it gets sorted out and you get to
+  check it before anything is saved.</p>
+
+  <form method="post" action="/workshop/interpret" class="stack">
+    <input type="hidden" name="wizard" value="1">
+    <textarea name="raw" rows="12" autofocus placeholder="Prusa MK4 (250x210x220)
+soldering iron — hakko fx888d
+digital calipers
+Rigol DS1054Z oscilloscope
+hot air rework station
+bench power supply 30V 5A
+wire strippers
+dupont crimper
+label printer">{{$d.Raw}}</textarea>
+    <div class="actions">
+      <button class="btn primary" type="submit">Read that</button>
+      <a class="btn" href="/welcome?step=ai">Skip</a>
+    </div>
+  </form>
+
+  {{if $d.Tools}}
+  <p class="muted">{{len $d.Tools}} already in the workshop.</p>
+  {{end}}
+
+{{else if or (eq $d.Step "review") (eq $d.Step "review-only")}}
+  <h1>Here's what I made of that</h1>
+  <p class="lede">Untick anything wrong, fix any kind I got backwards. Nothing has been
+  saved yet.</p>
+
+  <form method="post" action="/workshop/confirm">
+    {{if eq $d.Step "review"}}<input type="hidden" name="wizard" value="1">{{end}}
+    <table class="grid-table">
+      <thead><tr><th></th><th>Tool</th><th>Kind</th><th>Detail</th><th>From</th></tr></thead>
+      <tbody>
+        {{range $i, $t := $d.Parsed}}
+        <tr>
+          <td><input type="checkbox" name="keep" value="{{$i}}" checked></td>
+          <td><input name="name" value="{{$t.Name}}" size="26"></td>
+          <td>
+            <select name="kind">
+              {{range $d.Kinds}}
+              <option value="{{.Slug}}"{{if eq .Slug $t.Kind}} selected{{end}}>{{.Label}}</option>
+              {{end}}
+            </select>
+          </td>
+          <td><input name="detail" value="{{$t.Detail}}" size="16" placeholder="—"></td>
+          <td class="muted small">{{$t.Raw}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    <div class="actions">
+      <button class="btn primary" type="submit">Add {{len $d.Parsed}} to the workshop</button>
+      <a class="btn" href="{{if eq $d.Step "review"}}/welcome?step=tools{{else}}/workshop{{end}}">Back</a>
+    </div>
+  </form>
+
+{{else if eq $d.Step "ai"}}
+  <h1>Plug in a model — or don't</h1>
+  <p class="lede">Everything here works without one. The idea board has a suggester that
+  reads your shelf directly and needs no network at all. A model is for the ideas you
+  would not have thought of.</p>
+
+  {{if $d.Providers}}
+    <ul class="plain">
+      {{range $d.Providers}}
+      <li>{{.Name}} — {{.KindLabel}}{{if .Model}}, {{.Model}}{{end}}
+        {{if .Active}}<span class="pill ok">in use</span>{{end}}</li>
+      {{end}}
+    </ul>
+    <p><a class="btn" href="/settings/ai">Manage endpoints</a></p>
+  {{end}}
+
+  {{template "providerForm" dict "Presets" $d.Presets "Wizard" true}}
+
+  <div class="actions">
+    <form method="post" action="/welcome/finish"><button class="btn primary" type="submit">Finish</button></form>
+    <a class="btn" href="/settings/ai">Set it up properly later</a>
+  </div>
+
+{{else}}
+  <h1>That's the setup done</h1>
+  <p class="lede">Nothing else needs configuring. Here is what to do next.</p>
+  <ul class="next-steps">
+    <li><a href="/items/new">Add your first part</a> — or scan a label if you have one.
+      {{if $d.Items}}<span class="muted">You have {{$d.Items}} already.</span>{{end}}</li>
+    <li><a href="/workshop">Check the workshop</a> — {{len $d.Tools}} tool{{if ne (len $d.Tools) 1}}s{{end}} recorded.</li>
+    <li><a href="/ideas">Open the idea board</a> — it will tell you what you can build tonight.</li>
+  </ul>
+  <form method="post" action="/welcome/finish">
+    <button class="btn primary" type="submit">Take me to the dashboard</button>
+  </form>
+{{end}}
+</div>
+
+{{template "bottom" .}}
+{{end}}

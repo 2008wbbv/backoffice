@@ -1,0 +1,109 @@
+{{define "brainstorm.html"}}
+{{template "top" .}}
+{{$d := .Data}}
+
+<nav class="crumb"><a href="/">Dashboard</a><span class="sep">/</span><span class="here">Ideas</span></nav>
+
+<div class="folder-head">
+  <h1>Idea board</h1>
+  <div class="folder-actions">
+    <a class="chip sm{{if eq $d.Filter ""}} on{{end}}" href="/ideas">Open</a>
+    <a class="chip sm{{if eq $d.Filter "keeping"}} on{{end}}" href="/ideas?status=keeping">Keeping</a>
+    <a class="chip sm{{if eq $d.Filter "built"}} on{{end}}" href="/ideas?status=built">Built</a>
+    <a class="chip sm{{if eq $d.Filter "all"}} on{{end}}" href="/ideas?status=all">All</a>
+  </div>
+</div>
+
+<div class="panel brainstorm-box">
+  <p class="lede">What could you build out of what is already in the drawers?</p>
+  <form method="post" action="/ideas/generate" class="stack">
+    <label>Anything particular in mind?
+      <input name="ask" value="{{$d.Ask}}" placeholder="something for the garden — or leave it blank">
+    </label>
+    <div class="actions">
+      <button class="btn primary" type="submit" name="source" value="shelf">Read my shelf</button>
+      {{if $d.HasAI}}
+      <button class="btn" type="submit" name="source" value="model">Ask {{$d.Provider.Name}}</button>
+      {{else}}
+      <a class="btn" href="/settings/ai">Plug in a model…</a>
+      {{end}}
+    </div>
+    <p class="muted small">
+      <b>Read my shelf</b> works offline and only suggests projects it can name every part
+      for — {{$d.Items}} part{{if ne $d.Items 1}}s{{end}} in
+      {{len $d.Shelf.Roles}} role{{if ne (len $d.Shelf.Roles) 1}}s{{end}},
+      {{$d.Tools}} tool{{if ne $d.Tools 1}}s{{end}} in the workshop.
+      {{if $d.HasAI}}Asking {{$d.Provider.Name}} sends that summary out and checks what comes
+      back against your inventory.{{end}}
+    </p>
+  </form>
+</div>
+
+{{if not $d.Tools}}
+<p class="hint">No tools recorded, so every enclosure suggestion here is a guess.
+<a href="/workshop">Tell it what you have</a> and they stop being guesses.</p>
+{{end}}
+
+{{if $d.Ideas}}
+<p class="muted">{{len $d.Ideas}} on the board · {{$d.Buildable}} buildable with what you have.</p>
+
+<ul class="ideas">
+  {{range $d.Ideas}}
+  <li class="idea {{.Status}}">
+    <div class="idea-head">
+      <a class="idea-title" href="/ideas/{{.ID}}">{{.Title}}</a>
+      {{if .Buildable}}<span class="pill ok">all parts in stock</span>
+      {{else}}<span class="pill">{{len .Shortfall}} to buy</span>{{end}}
+      {{if .Effort}}<span class="pill">{{.Effort}}</span>{{end}}
+      {{if .Planned}}<a class="pill ok" href="/projects/{{.ProjectRef}}">planned ↗</a>{{end}}
+    </div>
+    <p class="idea-summary">{{.Summary}}</p>
+    {{if .Parts}}
+    <div class="idea-parts">
+      {{range .Parts}}
+        {{if .Have}}<a class="chip xs have" href="/items/{{.ItemID}}">{{.Name}}</a>
+        {{else}}<span class="chip xs want">{{.Name}}</span>{{end}}
+      {{end}}
+    </div>
+    {{end}}
+    <div class="idea-foot">
+      <span class="muted small">{{.Source}} · {{since .CreatedAt}}</span>
+      <div class="actions">
+        {{if not .Planned}}
+        <form method="post" action="/ideas/{{.ID}}/plan">
+          <button class="btn tiny primary" type="submit">Plan it</button>
+        </form>
+        {{end}}
+        {{if ne .Status "keeping"}}
+        <form method="post" action="/ideas/{{.ID}}/status">
+          <input type="hidden" name="status" value="keeping">
+          <button class="btn tiny" type="submit">Keep</button>
+        </form>
+        {{end}}
+        {{if ne .Status "built"}}
+        <form method="post" action="/ideas/{{.ID}}/status">
+          <input type="hidden" name="status" value="built">
+          <button class="btn tiny" type="submit">Built it</button>
+        </form>
+        {{end}}
+        {{if ne .Status "dropped"}}
+        <form method="post" action="/ideas/{{.ID}}/status">
+          <input type="hidden" name="status" value="dropped">
+          <button class="btn tiny" type="submit">Not for me</button>
+        </form>
+        {{end}}
+        <form method="post" action="/ideas/{{.ID}}/delete">
+          <button class="btn tiny danger" type="submit">×</button>
+        </form>
+      </div>
+    </div>
+  </li>
+  {{end}}
+</ul>
+{{else}}
+<p class="empty">Nothing on the board yet. Press <b>Read my shelf</b> — it only proposes
+things it can name every part for, so whatever comes back is buildable tonight.</p>
+{{end}}
+
+{{template "bottom" .}}
+{{end}}

@@ -508,6 +508,80 @@ CREATE TABLE manufacturers (
 );
 `,
 	},
+	{
+		name: "workshop, models and the idea board",
+		sql: `
+-- Who is using this and how they work. One row, because it describes the
+-- installation rather than a login -- accounts are the users table.
+CREATE TABLE profile (
+	id           INTEGER PRIMARY KEY CHECK (id = 1),
+	name         TEXT NOT NULL DEFAULT '',
+	bench        TEXT NOT NULL DEFAULT '',
+	units        TEXT NOT NULL DEFAULT 'mm',
+	skill        TEXT NOT NULL DEFAULT '',
+	interests    TEXT NOT NULL DEFAULT '',
+	onboarded_at TEXT NOT NULL DEFAULT '',
+	created_at   TEXT NOT NULL
+);
+
+-- What you can make things with, as opposed to what you can make things from.
+-- kind is a slug from a fixed vocabulary so capabilities can be derived; raw
+-- keeps the line it was interpreted from, so a bad guess can be traced back.
+CREATE TABLE tools (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	name       TEXT NOT NULL,
+	kind       TEXT NOT NULL DEFAULT 'other',
+	detail     TEXT NOT NULL DEFAULT '',
+	notes      TEXT NOT NULL DEFAULT '',
+	raw        TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL
+);
+CREATE INDEX idx_tools_kind ON tools(kind);
+
+-- Where to find a model, if you want one at all. api_key is written here
+-- because the point is to configure it from the browser; it is never rendered
+-- back, logged, or exported, and a backup of this file carries it.
+CREATE TABLE ai_providers (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	name       TEXT NOT NULL,
+	kind       TEXT NOT NULL,
+	endpoint   TEXT NOT NULL DEFAULT '',
+	model      TEXT NOT NULL DEFAULT '',
+	api_key    TEXT NOT NULL DEFAULT '',
+	active     INTEGER NOT NULL DEFAULT 0,
+	status     TEXT NOT NULL DEFAULT '',
+	checked_at TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL
+);
+
+-- The idea board. An idea becomes a project once you decide to build it, and
+-- keeps the link so the board can show what came of it.
+CREATE TABLE ideas (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	title      TEXT NOT NULL,
+	summary    TEXT NOT NULL DEFAULT '',
+	detail     TEXT NOT NULL DEFAULT '',
+	status     TEXT NOT NULL DEFAULT 'new',
+	source     TEXT NOT NULL DEFAULT '',
+	enclosure  TEXT NOT NULL DEFAULT '',
+	effort     TEXT NOT NULL DEFAULT '',
+	project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+	created_at TEXT NOT NULL
+);
+CREATE INDEX idx_ideas_status ON ideas(status);
+
+CREATE TABLE idea_parts (
+	id       INTEGER PRIMARY KEY AUTOINCREMENT,
+	idea_id  INTEGER NOT NULL REFERENCES ideas(id) ON DELETE CASCADE,
+	item_id  INTEGER REFERENCES items(id) ON DELETE SET NULL,
+	name     TEXT NOT NULL DEFAULT '',
+	quantity INTEGER NOT NULL DEFAULT 1,
+	role     TEXT NOT NULL DEFAULT '',
+	have     INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_idea_parts ON idea_parts(idea_id);
+`,
+	},
 }
 
 func migrate(db *sql.DB) error {

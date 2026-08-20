@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"html/template"
 	"net/http"
 	"strconv"
 	"strings"
@@ -33,6 +34,8 @@ type projectData struct {
 	Wiring      []PinAssignment
 	PinIdeas    []PinAssignment
 	PinClashes  []string
+	Diagram     template.HTML
+	Legend      []WireLegendEntry
 	Log         []LogEntry
 	Statuses    []string
 	Assemblies  []Project // other projects that could go inside this one
@@ -95,9 +98,14 @@ func (a *App) handleProject(w http.ResponseWriter, r *http.Request) {
 		Wiring:      wiring,
 		PinIdeas:    SuggestPins(p, wiring),
 		PinClashes:  PinConflicts(wiring),
-		Log:         entries,
-		Statuses:    ProjectStatuses,
-		Assemblies:  assemblies,
+		// The SVG is built here rather than in the template because it is
+		// drawing, not markup. It is marked safe because every string that goes
+		// into it is escaped on the way in by WiringDiagram itself.
+		Diagram:    template.HTML(WiringDiagram(controllerName(p), wiring)),
+		Legend:     WireLegend(wiring),
+		Log:        entries,
+		Statuses:   ProjectStatuses,
+		Assemblies: assemblies,
 	})
 }
 

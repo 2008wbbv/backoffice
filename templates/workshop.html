@@ -1,0 +1,97 @@
+{{define "workshop.html"}}
+{{template "top" .}}
+{{$d := .Data}}
+
+<nav class="crumb"><a href="/">Dashboard</a><span class="sep">/</span><span class="here">Workshop</span></nav>
+
+<div class="folder-head">
+  <h1>Workshop</h1>
+  <div class="folder-actions">
+    <a class="chip sm" href="/profile">Profile</a>
+    <a class="chip sm" href="/ideas">Idea board ↗</a>
+  </div>
+</div>
+
+<p class="lede">What you can build things <em>with</em>. The shelf says what you can build
+them <em>from</em>; this is the other half, and it is what decides whether a suggestion
+says “print a case” or “buy a box and drill it”.</p>
+
+{{if $d.Count}}
+<div class="capabilities">
+  <h3>So you can</h3>
+  <ul class="can">
+    {{range $d.Caps.Can}}<li class="yes">{{.}}</li>{{end}}
+    {{range $d.Caps.Missing}}<li class="no">{{.}}</li>{{end}}
+  </ul>
+</div>
+{{end}}
+
+<details class="inline-form panel" {{if not $d.Count}}open{{end}}>
+  <summary class="btn">Paste a list of tools</summary>
+  <form method="post" action="/workshop/interpret" class="stack">
+    <p class="muted">However it is already written. One per line works best; a single
+    comma-separated line works too. You get to check the result before it saves.</p>
+    <textarea name="raw" rows="10" placeholder="Prusa MK4 (250x210x220)
+soldering iron — hakko fx888d
+digital calipers
+Rigol DS1054Z oscilloscope"></textarea>
+    <div class="actions"><button class="btn primary" type="submit">Read that</button></div>
+  </form>
+</details>
+
+{{range $d.Groups}}
+<h2 class="tool-head"><span class="tool-icon">{{.Icon}}</span> {{.Label}}</h2>
+<ul class="tools">
+  {{range .Tools}}
+  <li class="tool">
+    <div class="tool-body">
+      <b>{{.Name}}</b>
+      {{if .Detail}}<span class="muted">{{.Detail}}</span>{{end}}
+      {{if .Notes}}<span class="muted small">{{.Notes}}</span>{{end}}
+    </div>
+    <details class="inline-form">
+      <summary class="btn tiny">Edit</summary>
+      <form method="post" action="/workshop/tools/{{.ID}}" class="stack">
+        <label>Name <input name="name" value="{{.Name}}"></label>
+        <label>Kind
+          <select name="kind">
+            {{$kind := .Kind}}
+            {{range $d.Kinds}}
+            <option value="{{.Slug}}"{{if eq .Slug $kind}} selected{{end}}>{{.Label}}</option>
+            {{end}}
+          </select>
+        </label>
+        <label>Detail <input name="detail" value="{{.Detail}}" placeholder="220 x 220 x 250 mm"></label>
+        <label>Notes <input name="notes" value="{{.Notes}}"></label>
+        <div class="actions"><button class="btn primary tiny" type="submit">Save</button></div>
+      </form>
+    </details>
+    <form method="post" action="/workshop/tools/{{.ID}}/delete"
+          onsubmit="return confirm('Remove {{.Name}}?')">
+      <button class="btn tiny danger" type="submit">×</button>
+    </form>
+  </li>
+  {{end}}
+</ul>
+{{else}}
+<p class="empty">No tools yet. Paste a list above, or add one at a time below.</p>
+{{end}}
+
+<details class="inline-form panel">
+  <summary class="btn">Add one tool</summary>
+  <form method="post" action="/workshop/tools" class="stack">
+    <label>Name <input name="name" placeholder="Digital calipers" required></label>
+    <label>Kind
+      <select name="kind">
+        <option value="auto" selected>— work it out —</option>
+        {{range $d.Kinds}}<option value="{{.Slug}}">{{.Label}}</option>{{end}}
+      </select>
+    </label>
+    <label>Detail <input name="detail" placeholder="0–150 mm"></label>
+    <label>Notes <input name="notes"></label>
+    <div class="actions"><button class="btn primary" type="submit">Add</button></div>
+  </form>
+</details>
+
+{{template "bottom" .}}
+{{end}}

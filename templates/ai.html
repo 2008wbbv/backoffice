@@ -1,0 +1,148 @@
+{{define "providerForm"}}
+<form method="post" action="/settings/ai" class="stack panel">
+  {{if .Wizard}}<input type="hidden" name="wizard" value="1">{{end}}
+  <h3>Add an endpoint</h3>
+
+  <div class="presets">
+    {{range .Presets}}
+    <button type="button" class="chip preset" data-kind="{{.Kind}}" data-endpoint="{{.Endpoint}}"
+            data-model="{{.Model}}" data-label="{{.Label}}" title="{{.Note}}">{{.Label}}</button>
+    {{end}}
+  </div>
+
+  <div class="field-row">
+    <label>Name
+      <input name="name" placeholder="Ollama" data-preset="label">
+    </label>
+    <label>Kind
+      <select name="kind" data-preset="kind">
+        <option value="ollama">Ollama (local)</option>
+        <option value="openai" selected>OpenAI-compatible</option>
+        <option value="anthropic">Anthropic</option>
+      </select>
+    </label>
+  </div>
+  <label>Endpoint
+    <input name="endpoint" placeholder="http://localhost:11434" data-preset="endpoint" required>
+    <small class="muted">The base URL. The path for the kind you picked is added on.</small>
+  </label>
+  <label>Model
+    <input name="model" placeholder="llama3.2" data-preset="model">
+  </label>
+  <label>API key
+    <input name="api_key" type="password" autocomplete="off" placeholder="not needed for a local model">
+    <small class="muted">Stored in the database on this machine so it survives a restart.
+      It is never shown again, never logged, and never included in a CSV export — but it
+      <em>is</em> in the backup file, so treat backups as secrets.</small>
+  </label>
+  <div class="actions"><button class="btn primary" type="submit">Add</button></div>
+</form>
+
+<script>
+// Presets only fill the form in; everything stays editable, and the form works
+// without this script if it never runs.
+document.querySelectorAll('.preset').forEach(function (b) {
+  b.addEventListener('click', function () {
+    var form = b.closest('form');
+    ['kind', 'endpoint', 'model', 'label'].forEach(function (key) {
+      var field = form.querySelector('[data-preset="' + key + '"]');
+      if (field) { field.value = b.dataset[key] || ''; }
+    });
+  });
+});
+</script>
+{{end}}
+
+{{define "ai.html"}}
+{{template "top" .}}
+{{$d := .Data}}
+
+<nav class="crumb"><a href="/">Dashboard</a><span class="sep">/</span><span class="here">Model</span></nav>
+
+<h1>Model</h1>
+<p class="lede">Somewhere to plug a model in for the idea board. Optional: with nothing
+set up here, ideas are worked out from your shelf by rules instead, which needs no
+network and no key.</p>
+
+{{if $d.Providers}}
+<ul class="providers">
+  {{range $d.Providers}}
+  <li class="provider{{if .Active}} on{{end}}">
+    <div class="provider-head">
+      <b>{{.Name}}</b>
+      <span class="muted">{{.KindLabel}}</span>
+      {{if .Active}}<span class="pill ok">in use</span>{{end}}
+      {{if .Status}}
+        <span class="pill {{if .Working}}ok{{else}}bad{{end}}" title="checked {{since .CheckedAt}}">{{.Status}}</span>
+      {{else}}
+        <span class="pill">never tested</span>
+      {{end}}
+    </div>
+    <div class="muted small">{{.Endpoint}}{{if .Model}} · {{.Model}}{{end}}
+      {{if .NeedsKey}}· {{if .HasKey}}key set{{else}}<b class="warn">no key</b>{{end}}{{end}}</div>
+
+    <div class="actions">
+      <form method="post" action="/settings/ai/{{.ID}}/test">
+        <button class="btn tiny" type="submit">Test</button>
+      </form>
+      {{if .Active}}
+      <form method="post" action="/settings/ai/{{.ID}}/use">
+        <input type="hidden" name="off" value="1">
+        <button class="btn tiny" type="submit">Switch off</button>
+      </form>
+      {{else}}
+      <form method="post" action="/settings/ai/{{.ID}}/use">
+        <button class="btn tiny" type="submit">Use this one</button>
+      </form>
+      {{end}}
+      <details class="inline-form">
+        <summary class="btn tiny">Edit</summary>
+        <form method="post" action="/settings/ai/{{.ID}}" class="stack">
+          <label>Name <input name="name" value="{{.Name}}"></label>
+          <label>Kind
+            <select name="kind">
+              <option value="ollama"{{if eq .Kind "ollama"}} selected{{end}}>Ollama (local)</option>
+              <option value="openai"{{if eq .Kind "openai"}} selected{{end}}>OpenAI-compatible</option>
+              <option value="anthropic"{{if eq .Kind "anthropic"}} selected{{end}}>Anthropic</option>
+            </select>
+          </label>
+          <label>Endpoint <input name="endpoint" value="{{.Endpoint}}"></label>
+          <label>Model <input name="model" value="{{.Model}}"></label>
+          <label>API key
+            <input name="api_key" type="password" autocomplete="off"
+                   placeholder="{{if .HasKey}}unchanged — type to replace{{else}}not set{{end}}">
+          </label>
+          <div class="actions"><button class="btn primary tiny" type="submit">Save</button></div>
+        </form>
+      </details>
+      {{if .HasKey}}
+      <form method="post" action="/settings/ai/{{.ID}}/key/clear">
+        <button class="btn tiny" type="submit">Clear key</button>
+      </form>
+      {{end}}
+      <form method="post" action="/settings/ai/{{.ID}}/delete"
+            onsubmit="return confirm('Remove {{.Name}}?')">
+        <button class="btn tiny danger" type="submit">Remove</button>
+      </form>
+    </div>
+  </li>
+  {{end}}
+</ul>
+{{else}}
+<p class="empty">Nothing plugged in. The idea board still works — it will read your shelf.</p>
+{{end}}
+
+{{template "providerForm" dict "Presets" $d.Presets "Wizard" false}}
+
+<div class="note">
+  <h3>What gets sent</h3>
+  <p>Only when you press <b>Ask &lt;this model&gt;</b> on the idea board: a compact list of
+  the parts you have in stock grouped by what they do, the tools in your workshop, and
+  whatever you typed in the box. No photos, no prices, no locations, no part numbers.</p>
+  <p>An endpoint you type here is dialled as given, including addresses on your own
+  network — that is how a local model works at all. Link imports elsewhere in the app
+  are still blocked from reaching private addresses.</p>
+</div>
+
+{{template "bottom" .}}
+{{end}}

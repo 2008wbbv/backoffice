@@ -1,0 +1,63 @@
+{{define "profile.html"}}
+{{template "top" .}}
+{{$d := .Data}}
+
+<nav class="crumb"><a href="/">Dashboard</a><span class="sep">/</span><span class="here">Profile</span></nav>
+
+<h1>{{if $d.Profile.Name}}{{$d.Profile.Name}}{{else}}Your profile{{end}}</h1>
+
+<div class="tiles">
+  <div class="tile"><b>{{$d.Items}}</b><span>parts on the shelf</span></div>
+  <div class="tile"><b>{{$d.Tools}}</b><span>tools in the workshop</span></div>
+  <div class="tile"><b>{{$d.Projects}}</b><span>projects</span></div>
+</div>
+
+{{if $d.Tools}}
+<div class="capabilities">
+  <h3>What you can do</h3>
+  <ul class="can">
+    {{range $d.Caps.Can}}<li class="yes">{{.}}</li>{{end}}
+    {{range $d.Caps.Missing}}<li class="no">{{.}}</li>{{end}}
+  </ul>
+  <p><a class="btn tiny" href="/workshop">Edit the workshop</a></p>
+</div>
+{{else}}
+<p class="empty">No tools recorded yet — <a href="/workshop">tell it what you have</a> and
+the idea board stops guessing about enclosures.</p>
+{{end}}
+
+<h2>Details</h2>
+<form method="post" action="/profile" class="stack panel">
+  <label>Name <input name="name" value="{{$d.Profile.Name}}"></label>
+  <label>Where you work <input name="bench" value="{{$d.Profile.Bench}}" placeholder="garage bench"></label>
+  <label>Experience
+    <select name="skill">
+      <option value=""{{if eq $d.Profile.Skill ""}} selected{{end}}>— rather not say —</option>
+      <option value="just starting"{{if eq $d.Profile.Skill "just starting"}} selected{{end}}>Just starting</option>
+      <option value="comfortable"{{if eq $d.Profile.Skill "comfortable"}} selected{{end}}>Comfortable with a soldering iron</option>
+      <option value="experienced"{{if eq $d.Profile.Skill "experienced"}} selected{{end}}>Experienced — I design boards</option>
+    </select>
+  </label>
+  <label>Interests
+    <textarea name="interests" rows="2">{{$d.Profile.Interests}}</textarea>
+    <small class="muted">Steers the idea board.</small>
+  </label>
+  <label>Units
+    <select name="units">
+      <option value="mm"{{if ne $d.Profile.Units "in"}} selected{{end}}>Millimetres</option>
+      <option value="in"{{if eq $d.Profile.Units "in"}} selected{{end}}>Inches</option>
+    </select>
+  </label>
+  <div class="actions"><button class="btn primary" type="submit">Save</button></div>
+</form>
+
+<h2>Model</h2>
+{{if $d.HasAI}}
+  <p><b>{{$d.Provider.Name}}</b> <span class="muted">{{$d.Provider.KindLabel}}{{if $d.Provider.Model}} · {{$d.Provider.Model}}{{end}}</span></p>
+{{else}}
+  <p class="muted">No model plugged in. The idea board reads your shelf instead.</p>
+{{end}}
+<p><a class="btn tiny" href="/settings/ai">Model settings</a></p>
+
+{{template "bottom" .}}
+{{end}}

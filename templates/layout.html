@@ -18,18 +18,22 @@
   <nav>
     <a href="/items" class="btn ghost{{if section . "/items"}} on{{end}}">Items</a>
     <a href="/projects" class="btn ghost{{if section . "/projects"}} on{{end}}">Projects</a>
+    <a href="/ideas" class="btn ghost{{if section . "/ideas"}} on{{end}}">Ideas</a>
     <a href="/orders" class="btn ghost{{if section . "/orders"}} on{{end}}">Orders</a>
     <a href="/scan" class="btn ghost{{if section . "/scan"}} on{{end}}">Scan</a>
 
     <details class="menu">
       <summary class="btn ghost">More</summary>
       <div class="menu-panel">
+        <a href="/workshop">Workshop</a>
         <a href="/manufacturers">Manufacturers</a>
         <a href="/tags">Tags</a>
         <a href="/tools">Calculators</a>
         <a href="/labels">Print labels</a>
         <a href="/export.csv">Export CSV</a>
         <hr>
+        <a href="/profile">Profile</a>
+        <a href="/settings/ai">Model</a>
         <a href="/admin">Health &amp; backup</a>
         <a href="/activity">Activity</a>
         {{if .User}}<span class="menu-who">signed in as {{.User.Username}}</span>{{end}}

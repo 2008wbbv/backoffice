@@ -162,6 +162,17 @@
 
   {{range $d.PinClashes}}<div class="toast bad inline">⚠ {{.}}</div>{{end}}
 
+  {{if $d.Diagram}}
+  <figure class="wiring-figure">
+    {{$d.Diagram}}
+    <figcaption>
+      {{range $d.Legend}}<span class="wire-key"><i style="background: {{.Colour}}"></i>{{.Signal}}</span>{{end}}
+      <span class="muted small">Colours follow bench convention — red is power, black is
+        ground — so the drawing and the wire in your hand agree.</span>
+    </figcaption>
+  </figure>
+  {{end}}
+
   {{if $d.Wiring}}
   <table class="wiring">
     <thead><tr><th>Pin</th><th>Goes to</th><th>Signal</th><th>Note</th><th></th></tr></thead>

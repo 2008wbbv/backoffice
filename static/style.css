@@ -917,3 +917,115 @@ img.maker-chip { object-fit: contain; background: #fff; padding: 1px; }
   .topbar nav { gap: 5px; flex: 1; justify-content: flex-end; }
   .topbar nav .btn { padding: 7px 9px; font-size: 13.5px; }
 }
+
+/* --- onboarding, workshop, ideas and wiring -------------------------------- */
+
+/* The wizard is deliberately narrow: it is a form to read, not a page to scan. */
+.wizard { max-width: 680px; }
+.wizard h1 { margin-top: 6px; }
+.lede { font-size: 15px; color: var(--muted); max-width: 62ch; }
+
+.steps { list-style: none; display: flex; gap: 6px; padding: 0; margin: 0 0 22px;
+  flex-wrap: wrap; font-size: 12px; }
+.steps li { padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px;
+  color: var(--muted); }
+.steps li.on { border-color: var(--accent); color: var(--fg);
+  background: color-mix(in srgb, var(--accent) 12%, transparent); }
+
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.stack label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.stack input:not([type=checkbox]):not([type=hidden]), .stack select, .stack textarea,
+.brainstorm-box input, .enclosure input[type=search] {
+  width: 100%; padding: 8px 11px; font: inherit;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--line); border-radius: 9px;
+}
+.stack input:focus, .stack textarea:focus, .stack select:focus,
+.brainstorm-box input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.enclosure input[type=search] { max-width: 320px; }
+.field-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.field-row label { flex: 1 1 180px; }
+.panel { background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 16px; margin: 18px 0; }
+
+.setup-banner { display: flex; gap: 16px; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  border-radius: var(--radius); padding: 14px 16px; margin-bottom: 18px; }
+.setup-banner .muted { display: block; max-width: 60ch; margin-top: 2px; }
+
+.next-steps { line-height: 1.9; }
+
+/* The capability list is the point of the workshop page, so it reads as
+   sentences rather than as a table. */
+.capabilities { margin: 18px 0; }
+.can { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.can li { padding-left: 22px; position: relative; }
+.can li.yes::before { content: "✓"; position: absolute; left: 0; color: #2f9e5a; font-weight: 700; }
+.can li.no::before { content: "—"; position: absolute; left: 0; color: var(--muted); }
+.can li.no { color: var(--muted); }
+
+.tool-head { display: flex; align-items: center; gap: 8px; font-size: 15px;
+  margin: 22px 0 8px; }
+.tool-icon { font-size: 16px; }
+.tools { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.tool { display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+.tool-body { display: flex; flex-direction: column; min-width: 0; flex: 1; font-size: 13px; }
+.tool-body .muted { font-size: 12px; }
+
+.presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.chip.preset { cursor: pointer; }
+
+.providers { list-style: none; padding: 0; margin: 0 0 18px; display: grid; gap: 10px; }
+.provider { padding: 12px 14px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); display: flex; flex-direction: column; gap: 6px; }
+.provider.on { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+.provider-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pill { font-size: 11px; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--muted); }
+.pill.ok { color: #2f9e5a; border-color: color-mix(in srgb, #2f9e5a 45%, var(--line)); }
+.pill.bad { color: #c0392b; border-color: color-mix(in srgb, #c0392b 45%, var(--line)); }
+.warn { color: #c0392b; }
+.note { border-left: 3px solid var(--line); padding-left: 14px; margin-top: 26px;
+  color: var(--muted); font-size: 13px; max-width: 70ch; }
+.note h3 { margin-bottom: 4px; color: var(--fg); }
+
+.brainstorm-box { max-width: 720px; }
+.hint { color: var(--muted); font-size: 13px; border-left: 3px solid var(--line);
+  padding-left: 12px; }
+.ideas { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.idea { padding: 14px 16px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); }
+.idea.dropped { opacity: .55; }
+.idea.built { border-color: color-mix(in srgb, #2f9e5a 40%, var(--line)); }
+.idea-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.idea-title { font-weight: 650; font-size: 15px; }
+.idea-summary { margin: 6px 0; max-width: 75ch; }
+.idea-parts { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+.chip.have { border-color: color-mix(in srgb, #2f9e5a 40%, var(--line)); }
+.chip.want { border-style: dashed; color: var(--muted); }
+.idea-foot { display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.idea-actions { margin-top: 26px; }
+.enclosure p { max-width: 75ch; }
+.measure { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+.measure h3 { margin: 0 0 4px; font-size: 14px; }
+.kept-ideas li { padding: 3px 0; display: flex; gap: 8px; align-items: center; }
+
+/* The diagram scrolls sideways rather than squashing: a wiring drawing that has
+   been scaled down to fit a phone is not readable, and readable is the point. */
+.wiring-figure { margin: 0 0 18px; overflow-x: auto; }
+.wiring-svg { width: 620px; flex: none; display: block; }
+.wiring-figure figcaption { display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  margin-top: 6px; font-size: 12px; color: var(--muted); }
+.wire-key { display: inline-flex; align-items: center; gap: 5px; }
+.wire-key i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+
+.grid-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.grid-table th { text-align: left; font-weight: 600; color: var(--muted);
+  border-bottom: 1px solid var(--line); padding: 6px 8px; }
+.grid-table td { padding: 5px 8px; border-bottom: 1px solid var(--line); }
+.plain { list-style: none; padding: 0; margin: 0; }
+form.inline { display: inline; }

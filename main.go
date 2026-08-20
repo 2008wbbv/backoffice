@@ -232,6 +232,36 @@ func (a *App) routes() http.Handler {
 	protected.HandleFunc("POST /manufacturers/logo/clear", a.handleClearLogo)
 	protected.HandleFunc("POST /manufacturers/merge", a.handleMergeManufacturer)
 
+	// Onboarding, the profile, and the workshop it describes.
+	protected.HandleFunc("GET /welcome", a.handleWelcome)
+	protected.HandleFunc("POST /welcome/finish", a.handleFinishOnboarding)
+	protected.HandleFunc("GET /profile", a.handleProfile)
+	protected.HandleFunc("POST /profile", a.handleSaveProfile)
+	protected.HandleFunc("GET /workshop", a.handleWorkshop)
+	protected.HandleFunc("POST /workshop/interpret", a.handleParseTools)
+	protected.HandleFunc("POST /workshop/confirm", a.handleConfirmTools)
+	protected.HandleFunc("POST /workshop/tools", a.handleAddTool)
+	protected.HandleFunc("POST /workshop/tools/{id}", a.handleUpdateTool)
+	protected.HandleFunc("POST /workshop/tools/{id}/delete", a.handleDeleteTool)
+
+	// Where a model gets plugged in, if one does.
+	protected.HandleFunc("GET /settings/ai", a.handleAISettings)
+	protected.HandleFunc("POST /settings/ai", a.handleAddProvider)
+	protected.HandleFunc("POST /settings/ai/{id}", a.handleUpdateProvider)
+	protected.HandleFunc("POST /settings/ai/{id}/use", a.handleActivateProvider)
+	protected.HandleFunc("POST /settings/ai/{id}/test", a.handleTestProvider)
+	protected.HandleFunc("POST /settings/ai/{id}/key/clear", a.handleClearProviderKey)
+	protected.HandleFunc("POST /settings/ai/{id}/delete", a.handleDeleteProvider)
+
+	// The idea board.
+	protected.HandleFunc("GET /ideas", a.handleBrainstorm)
+	protected.HandleFunc("POST /ideas/generate", a.handleGenerateIdeas)
+	protected.HandleFunc("GET /ideas/{id}", a.handleIdea)
+	protected.HandleFunc("POST /ideas/{id}/cases", a.handleIdeaCases)
+	protected.HandleFunc("POST /ideas/{id}/status", a.handleIdeaStatus)
+	protected.HandleFunc("POST /ideas/{id}/plan", a.handlePlanIdea)
+	protected.HandleFunc("POST /ideas/{id}/delete", a.handleDeleteIdea)
+
 	// Tags
 	protected.HandleFunc("GET /tags", a.handleTags)
 	protected.HandleFunc("POST /tags/icon", a.handleSetTagIcon)

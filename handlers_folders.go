@@ -20,6 +20,9 @@ type dashboardData struct {
 	LowStock []Item
 	Tags     []Facet
 	Unfiled  int
+	Setup    bool // first boot: offer the wizard rather than an empty page
+	Profile  Profile
+	Ideas    []Idea
 }
 
 // handleDashboard is the landing page: folders first, then what changed and
@@ -57,7 +60,14 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	profile, _ := a.store.GetProfile()
+	// Ideas that are worth doing something about, which is the ones you kept.
+	ideas, _ := a.store.ListIdeas("keeping")
+
 	a.render(w, r, "dashboard.html", "", dashboardData{
+		Setup:    !profile.Onboarded(),
+		Profile:  profile,
+		Ideas:    firstN(ideas, 3),
 		Projects: firstN(projects, 4),
 		Folders:  tree,
 		Flat:     FlattenFolders(tree),

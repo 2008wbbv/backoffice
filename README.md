@@ -56,11 +56,156 @@ Everything is optional. The defaults are the intended setup.
 | `ALLOW_PRIVATE_FETCH` | *(unset)* | Let "import from a link" reach LAN addresses. See below. |
 | `TZ` | `UTC` | Affects the "updated 3 hours ago" timestamps. |
 
+## Setting it up
+
+On first boot the dashboard offers a short wizard. Every step of it is skippable
+and it never comes back once dismissed.
+
+**Who you are** — a name, where you work, roughly how experienced you are, and
+what you are into. None of it leaves the machine; it exists so the idea board
+can stop sounding generic.
+
+**What you have to work with** — see below.
+
+**A model, if you want one** — see [Plugging in a model](#plugging-in-a-model).
+
+### The workshop
+
+The inventory records what you can build things *from*. The **Workshop** page
+records what you can build them *with*, and it is what stops the app suggesting
+you print a case when you have no printer.
+
+You do not fill in a form forty times. You paste your tools however they are
+already written — a note on your phone, bullets, headings, model numbers, one
+per line or all on one line — and it is interpreted into rows:
+
+```
+3D printing:
+- Prusa MK4 (250x210x220)
+
+Soldering:
+1. soldering iron — hakko fx888d
+2) hot air rework station
+
+digital calipers
+Rigol DS1054Z oscilloscope - 50MHz
+2x wire strippers
+label printer
+```
+
+That is read as a 3D printer with a 250 × 210 × 220 mm bed, a soldering iron, a
+hot air station filed under SMD work rather than soldering, calipers, a scope,
+strippers noted as a pair, and a label printer — not a 3D printer. Specifically:
+
+- Bullets, numbering, checkboxes and blank lines come off.
+- A heading ending in a colon applies to the lines under it, and a blank line
+  ends it.
+- A parenthesised or dashed-off **measurement** becomes detail; a dashed-off
+  **model number** stays part of the name.
+- `2x` and `x2` are recorded as a note, not as duplicate rows.
+- One tool per line is respected and its commas are left alone; a single
+  comma-separated line is split on them. Guessing the other way round mangles
+  either `Rigol DS1054Z, 50MHz, 4 channel` or `strippers, crimper, tweezers`.
+- A line nothing recognises is still kept, filed as *Other*. Nothing is dropped
+  silently.
+
+**Then you check it.** Nothing is saved until you have seen the table and had
+the chance to untick a row or fix a kind that came out backwards. Interpreting
+without showing the interpretation is just a different way of being wrong.
+
+What the tools add up to is shown as capabilities — *3D print parts up to
+250 × 210 × 220 mm*, *solder surface-mount parts*, *measure parts accurately* —
+and those, not the tool names, are what the rest of the app reasons about.
+
+## Plugging in a model
+
+Optional, and off until you set it up. Three shapes cover everything worth
+plugging in:
+
+| Kind | What it speaks | Key |
+|---|---|---|
+| **Ollama (local)** | `POST {endpoint}/api/chat` | none |
+| **OpenAI-compatible** | `POST {endpoint}/chat/completions` | `Authorization: Bearer` |
+| **Anthropic** | `POST {endpoint}/v1/messages` | `x-api-key` |
+
+The OpenAI shape covers OpenAI itself, Moonshot/Kimi, OpenRouter, LM Studio,
+llama.cpp and anything else that copied the format. Presets on the settings page
+fill in the base URL and a starting model name; both stay editable.
+
+There is a **Test** button, and it makes a real round trip and reports what came
+back. "Saved" is not the same as "works", and a key with a typo in it should be
+found there rather than the first time you press Brainstorm.
+
+**About the key.** It is stored in the database on this machine, because the
+point is to configure it from the browser and have it survive a restart. It is
+never rendered back into a page, never written to the log, and never included in
+a CSV export — but it *is* in the backup file, so treat backups as secrets. An
+empty key box on the edit form means "leave the stored one alone", not "erase
+it". You can clear it explicitly.
+
+**About the endpoint.** A URL you type here is dialled as given, including
+addresses on your own network — that is the only way a local model works at all.
+This is a deliberate exception: link imports elsewhere in the app are still
+blocked from reaching private addresses, because those URLs arrive from web
+pages rather than from you.
+
+**What gets sent, and when.** Only when you press *Ask the model* on the idea
+board: the parts you have in stock grouped by what they do, the tools in your
+workshop, and whatever you typed in the box. No photos, no prices, no locations,
+no part numbers.
+
+## The idea board
+
+*What could you build out of what is already in the drawers?*
+
+Two suggesters answer that, and which one runs is your choice rather than a
+silent fallback.
+
+**Read my shelf** needs no network, no key and no model. It sorts the inventory
+into roles — controller, sensor, display, actuator, radio, power — from each
+item's name, category, tags and recorded interfaces, and matches them against a
+set of recipes. It will only propose a project it can name every part for, so it
+suggests fewer things than a model would and none of them are fictional. Parts
+you have none of in stock do not count.
+
+**Ask the model** is better at the leap you would not have thought of and worse
+at knowing what you own, so its answers are checked back against the inventory
+before they are shown: a part it claims you have that is not on the shelf is
+marked as one to buy, whatever the model said. If the model fails, you are told
+that it failed rather than quietly handed shelf suggestions instead.
+
+Each idea carries how it gets into a box, and that answer depends on the
+workshop: print it (with your bed size, and a reminder to measure first if you
+have calipers), laser cut it, buy a box and drill it, or — with no tools
+recorded — look for a project box with the cutouts already in it. For a part
+whose size nothing on file records, it says so and asks you to measure it, since
+a case designed from a product photo never fits.
+
+**Plan it** turns an idea into a real project with its parts already listed,
+which is where the pin budget, the wiring and the build log take over.
+
+## Wiring diagrams
+
+The pin map has always been a table, which is the right thing to have next to
+you at the bench and the wrong thing for seeing whether a plan makes sense. The
+project page now draws it as well: the controller down the left, everything
+hanging off it on the right, and a coloured line per wire.
+
+The colours are the convention you would use with real wire — red for power,
+black for ground, yellow and blue for the I2C pair, dashed for interrupts — so
+the drawing and the reel in your hand agree. Power and ground are drawn thicker,
+because those are the ones that cost a board when they are wrong. A pin used
+twice is marked on the drawing as well as in the table.
+
+The **wiring card** CSV carries the same colours by name, so the printout and
+the screen say the same thing.
+
 ## Using it
 
-The bar across the top carries the four places you go daily — **Items**,
-**Projects**, **Orders**, **Scan** — plus **+ Add**. Everything else (manufacturers,
-tags, calculators, labels, CSV, health, activity) lives behind **More**, which is a
+The bar across the top carries the places you go daily — **Items**, **Projects**,
+**Ideas**, **Orders**, **Scan** — plus **+ Add**. Everything else (manufacturers,
+tags, calculators, labels, CSV, health, activity, the workshop, your profile and
+the model settings) lives behind **More**, which is a
 plain `<details>` menu and works without JavaScript. On a phone the bar folds to
 the same set.
 

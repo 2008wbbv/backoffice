@@ -1,0 +1,139 @@
+{{define "idea.html"}}
+{{template "top" .}}
+{{$d := .Data}}{{$i := $d.Idea}}
+
+<nav class="crumb"><a href="/ideas">Ideas</a><span class="sep">/</span><span class="here">{{$i.Title}}</span></nav>
+
+<div class="folder-head">
+  <h1>{{$i.Title}}</h1>
+  <div class="folder-actions">
+    {{if $i.Planned}}
+      <a class="btn primary" href="/projects/{{$i.ProjectRef}}">Open the project ↗</a>
+    {{else}}
+      <form method="post" action="/ideas/{{$i.ID}}/plan">
+        <button class="btn primary" type="submit">Plan it</button>
+      </form>
+    {{end}}
+  </div>
+</div>
+
+<p class="lede">{{$i.Summary}}</p>
+{{if $i.Detail}}<p class="muted">{{$i.Detail}}</p>{{end}}
+<p class="muted small">{{$i.StatusLabel}} · suggested {{$i.Source}} · {{since $i.CreatedAt}}
+  {{if $i.Effort}}· {{$i.Effort}}{{end}}</p>
+
+<h2>Parts</h2>
+{{if $i.Parts}}
+<table class="grid-table">
+  <thead><tr><th>Part</th><th>Role</th><th>Qty</th><th>Have it?</th></tr></thead>
+  <tbody>
+    {{range $i.Parts}}
+    <tr>
+      <td>{{if .Have}}<a href="/items/{{.ItemID}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td>
+      <td class="muted">{{.Role}}</td>
+      <td>{{.Quantity}}</td>
+      <td>{{if .Have}}<span class="pill ok">on the shelf</span>
+          {{else}}<a class="pill" href="/items?q={{.Name}}">not found — search</a>{{end}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="empty">No parts recorded against this one.</p>
+{{end}}
+
+<h2>Getting it in a box</h2>
+<div class="panel enclosure">
+  <p>{{if $i.Enclosure}}{{$i.Enclosure}}{{else}}{{$d.Plan.Advice}}{{end}}</p>
+
+  {{if $d.Plan.Measure}}
+  <div class="measure">
+    <h3>Measure these yourself</h3>
+    <p class="muted">Nothing on file records how big {{if gt (len $d.Plan.Measure) 1}}these are{{else}}this is{{end}},
+      and a case designed from a product photo never fits.
+      {{if $d.Caps.Measure}}You have calipers — take the board's outline, the mounting-hole
+      spacing, and the height of the tallest thing on it including the connectors.
+      {{else}}You have no calipers listed, so take the dimensions from the datasheets and
+      add a millimetre of clearance all round.{{end}}
+      Put the numbers in each part's specifications and they will be here next time.</p>
+    <ul class="plain">
+      {{range $d.Plan.Measure}}<li>{{.}}</li>{{end}}
+    </ul>
+  </div>
+  {{end}}
+
+  {{if $d.Plan.CanSearch}}
+  <form method="post" action="/ideas/{{$i.ID}}/cases" class="actions">
+    <input type="search" name="q" value="{{$d.Query}}" placeholder="{{with index $d.Plan.SearchTerms 0}}{{.}}{{else}}{{$i.Title}} case{{end}}">
+    <button class="btn" type="submit">Look for a printable case</button>
+  </form>
+  {{if $d.Plan.SearchTerms}}
+  <div class="filter-row">
+    <span class="filter-label">Try</span>
+    {{range $d.Plan.SearchTerms}}
+    <form method="post" action="/ideas/{{$i.ID}}/cases" class="inline">
+      <input type="hidden" name="q" value="{{.}}">
+      <button class="chip" type="submit">{{.}}</button>
+    </form>
+    {{end}}
+  </div>
+  {{end}}
+  {{end}}
+</div>
+
+{{if $d.Searched}}
+  {{if $d.SearchErr}}<div class="toast bad inline">{{$d.SearchErr}}</div>{{end}}
+  {{range $d.Notes}}<div class="toast bad inline">{{.}}</div>{{end}}
+
+  {{if $d.Models}}
+  <h2>Printable cases</h2>
+  <p class="muted page-sub">
+    {{if $d.Caps.BuildVolume.Known}}Your bed is {{$d.Caps.BuildVolume}} — check the model's
+    size before you commit to a six-hour print.{{end}}
+    Download counts are the only real review signal these sites have.</p>
+  <ul class="grid models">
+    {{range $d.Models}}
+    <li class="card">
+      <a class="thumb model-thumb" href="{{.URL}}" target="_blank" rel="noreferrer noopener">
+        {{if .ImageURL}}
+          <img src="/media/remote?u={{.ImageURL}}" alt="{{.Title}}" loading="lazy" decoding="async">
+        {{else}}<span class="noimg">◍</span>{{end}}
+        <span class="price-tag">{{.Source}}</span>
+      </a>
+      <div class="body">
+        <a class="name" href="{{.URL}}" target="_blank" rel="noreferrer noopener">{{.Title}}</a>
+        {{if .Author}}<div class="loc">by {{.Author}}</div>{{end}}
+        {{if .Stats}}<div class="val">{{.Stats}}</div>{{end}}
+      </div>
+    </li>
+    {{end}}
+  </ul>
+  {{else if not $d.SearchErr}}
+  <p class="empty">Nothing came back for that. Try a different wording — the board name on
+  its own usually finds more than the project name does.</p>
+  {{end}}
+{{end}}
+
+<div class="actions idea-actions">
+  {{if ne $i.Status "keeping"}}
+  <form method="post" action="/ideas/{{$i.ID}}/status">
+    <input type="hidden" name="status" value="keeping"><button class="btn" type="submit">Keep</button>
+  </form>
+  {{end}}
+  {{if ne $i.Status "built"}}
+  <form method="post" action="/ideas/{{$i.ID}}/status">
+    <input type="hidden" name="status" value="built"><button class="btn" type="submit">Built it</button>
+  </form>
+  {{end}}
+  {{if ne $i.Status "dropped"}}
+  <form method="post" action="/ideas/{{$i.ID}}/status">
+    <input type="hidden" name="status" value="dropped"><button class="btn" type="submit">Not for me</button>
+  </form>
+  {{end}}
+  <form method="post" action="/ideas/{{$i.ID}}/delete" onsubmit="return confirm('Remove this idea?')">
+    <button class="btn danger" type="submit">Delete</button>
+  </form>
+</div>
+
+{{template "bottom" .}}
+{{end}}

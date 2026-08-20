@@ -2,6 +2,38 @@
 {{template "top" .}}
 {{$d := .Data}}
 
+{{if $d.Setup}}
+<div class="setup-banner">
+  <div>
+    <b>First time here?</b>
+    <span class="muted">Two minutes to say who you are and what tools you have — after that the
+      idea board can tell you what you can actually build, and whether to print a case or buy one.</span>
+  </div>
+  <div class="actions">
+    <a class="btn primary" href="/welcome">Set it up</a>
+    <form method="post" action="/welcome/finish"><button class="btn" type="submit">Not now</button></form>
+  </div>
+</div>
+{{end}}
+
+{{if $d.Ideas}}
+<section class="panel-block">
+  <div class="section-head">
+    <h2>Ideas you kept</h2>
+    <a class="chip sm" href="/ideas">All ideas</a>
+  </div>
+  <ul class="plain kept-ideas">
+    {{range $d.Ideas}}
+    <li><a href="/ideas/{{.ID}}">{{.Title}}</a>
+      {{if .Buildable}}<span class="pill ok">all parts in stock</span>
+      {{else}}<span class="pill">{{len .Shortfall}} to buy</span>{{end}}
+      {{if .Planned}}<a class="pill ok" href="/projects/{{.ProjectRef}}">planned ↗</a>{{end}}
+    </li>
+    {{end}}
+  </ul>
+</section>
+{{end}}
+
 <form class="search live-search" method="get" action="/items">
   <input type="search" name="q" placeholder="Search everything — name, part number, tags, notes…"
          autocomplete="off" data-live-search>
