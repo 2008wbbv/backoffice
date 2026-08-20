@@ -12,26 +12,39 @@
 <header class="topbar">
   <a class="brand" href="/">{{.SiteName}}</a>
   {{if not .Bare}}
+  {{/* Four places you go daily stay on the bar; everything else lives behind
+       More, so the header does not wrap into two rows on a phone. The current
+       section is marked, which the bar never used to say. */}}
   <nav>
-    <a href="/items" class="btn ghost">Items</a>
-    <a href="/projects" class="btn ghost">Projects</a>
-    <a href="/orders" class="btn ghost">Orders</a>
-    <a href="/tools" class="btn ghost">Calculators</a>
-    <a href="/scan" class="btn ghost" title="Scan a label">Scan</a>
-    <a href="/labels" class="btn ghost">Labels</a>
-    <a href="/admin" class="btn ghost" title="Health, backup and accounts">⚙</a>
-    <a href="/items/new" class="btn primary">+ Add item</a>
-    {{if .AuthOn}}
-    <form method="post" action="/logout">
-      {{if .User}}<span class="whoami" title="Signed in as {{.User.Username}}">{{.User.Username}}</span>{{end}}
-      <button class="btn ghost" type="submit">Sign out</button>
-    </form>
-    {{end}}
+    <a href="/items" class="btn ghost{{if section . "/items"}} on{{end}}">Items</a>
+    <a href="/projects" class="btn ghost{{if section . "/projects"}} on{{end}}">Projects</a>
+    <a href="/orders" class="btn ghost{{if section . "/orders"}} on{{end}}">Orders</a>
+    <a href="/scan" class="btn ghost{{if section . "/scan"}} on{{end}}">Scan</a>
+
+    <details class="menu">
+      <summary class="btn ghost">More</summary>
+      <div class="menu-panel">
+        <a href="/manufacturers">Manufacturers</a>
+        <a href="/tags">Tags</a>
+        <a href="/tools">Calculators</a>
+        <a href="/labels">Print labels</a>
+        <a href="/export.csv">Export CSV</a>
+        <hr>
+        <a href="/admin">Health &amp; backup</a>
+        <a href="/activity">Activity</a>
+        {{if .User}}<span class="menu-who">signed in as {{.User.Username}}</span>{{end}}
+        {{if .AuthOn}}
+        <form method="post" action="/logout"><button type="submit">Sign out</button></form>
+        {{end}}
+      </div>
+    </details>
+
+    <a href="/items/new" class="btn primary">+ Add</a>
   </nav>
   {{end}}
 </header>
-{{if .Flash}}<div class="toast ok">{{.Flash}}</div>{{end}}
-{{if .Error}}<div class="toast bad">{{.Error}}</div>{{end}}
+{{if .Flash}}<div class="toast ok flash">{{.Flash}}</div>{{end}}
+{{if .Error}}<div class="toast bad flash">{{.Error}}</div>{{end}}
 <main>
 {{end}}
 

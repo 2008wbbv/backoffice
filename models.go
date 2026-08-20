@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -403,14 +404,11 @@ func (m Model) Image() string {
 }
 
 func (s *Store) attachModels(items []Item, byID map[int64]int) error {
-	rows, err := s.db.Query(`SELECT id, item_id, source, title, url, author, licence,
-		downloads, likes, rating, thumb, preview, dimensions, triangles, note, position, created_at
-		FROM models ORDER BY item_id, position, id`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
+	return s.eachInChunks(itemIDs(byID), func(in string) string {
+		return `SELECT id, item_id, source, title, url, author, licence,
+			downloads, likes, rating, thumb, preview, dimensions, triangles, note, position, created_at
+			FROM models WHERE item_id IN (` + in + `) ORDER BY item_id, position, id`
+	}, func(rows *sql.Rows) error {
 		var m Model
 		var created string
 		err := rows.Scan(&m.ID, &m.ItemID, &m.Source, &m.Title, &m.URL, &m.Author,
@@ -420,11 +418,9 @@ func (s *Store) attachModels(items []Item, byID map[int64]int) error {
 			return err
 		}
 		m.CreatedAt, _ = time.Parse(time.RFC3339, created)
-		if idx, ok := byID[m.ItemID]; ok {
-			items[idx].Models = append(items[idx].Models, m)
-		}
-	}
-	return rows.Err()
+		items[byID[m.ItemID]].Models = append(items[byID[m.ItemID]].Models, m)
+		return nil
+	})
 }
 
 func (s *Store) AddModel(m Model) (int64, error) {

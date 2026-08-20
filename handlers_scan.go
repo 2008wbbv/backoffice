@@ -1,7 +1,9 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -54,15 +56,17 @@ func (a *App) resolveCode(code string) (Item, string, bool) {
 	}
 
 	// Otherwise it is a part number -- either ours, or the manufacturer's
-	// barcode on the bag it came in, which is just as good.
-	items, err := a.store.ListItems(Query{})
-	if err != nil {
-		return Item{}, err.Error(), false
-	}
-	for _, it := range items {
-		if it.PartNumber != "" && strings.EqualFold(it.PartNumber, code) {
+	// barcode on the bag it came in, which is just as good. Asking the database
+	// for the one match beats reading the whole inventory to compare strings.
+	var id int64
+	err := a.store.db.QueryRow(`SELECT id FROM items WHERE part_number = ? COLLATE NOCASE
+		ORDER BY id LIMIT 1`, code).Scan(&id)
+	if err == nil {
+		if it, err := a.store.GetItem(id); err == nil {
 			return it, "", true
 		}
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return Item{}, err.Error(), false
 	}
 	// A last pass over names, so scanning a shop's own barcode label still
 	// finds something when the part number was never filled in.

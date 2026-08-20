@@ -1,0 +1,86 @@
+{{define "manufacturers.html"}}
+{{template "top" .}}
+{{$d := .Data}}
+
+<nav class="crumb"><a href="/">Dashboard</a><span class="sep">/</span><span class="here">Manufacturers</span></nav>
+
+<div class="folder-head">
+  <h1>Manufacturers</h1>
+  <div class="folder-actions">
+    {{if $d.Unknown}}<a class="chip sm" href="/items?manufacturer=">{{$d.Unknown}} with no maker recorded</a>{{end}}
+  </div>
+</div>
+
+{{if $d.Makers}}
+<div class="tiles">
+  <div class="tile"><b>{{len $d.Makers}}</b><span>manufacturers</span></div>
+  <div class="tile"><b>{{$d.Items}}</b><span>items attributed</span></div>
+  <div class="tile"><b>{{$d.WithLogos}}</b><span>with a logo</span></div>
+</div>
+
+<ul class="makers">
+  {{range $d.Makers}}
+  <li class="maker">
+    <a class="maker-face" href="/items?manufacturer={{.Name}}">
+      {{if .Logo}}
+        <img src="/media/thumb/{{.Logo}}" alt="{{.Name}}" loading="lazy">
+      {{else}}
+        <span class="maker-mark" style="--hue: {{hue .Name}}">{{.Initials}}</span>
+      {{end}}
+    </a>
+    <div class="maker-body">
+      <a class="maker-name" href="/items?manufacturer={{.Name}}">{{.Name}}</a>
+      <span class="muted">
+        {{.Items}} item{{if ne .Items 1}}s{{end}} · {{.Pieces}} pieces{{if .Value}} · {{.ValueDisplay}}{{end}}
+      </span>
+      {{with .Site}}<a class="muted maker-site" href="{{.}}" target="_blank" rel="noreferrer noopener">{{.}}</a>{{end}}
+      {{if .Notes}}<span class="muted">{{.Notes}}</span>{{end}}
+    </div>
+    <details class="inline-form">
+      <summary class="btn tiny">{{if .Logo}}Logo{{else}}Get logo{{end}}</summary>
+      <div class="pop">
+        <form method="post" action="/manufacturers/logo" enctype="multipart/form-data">
+          <input type="hidden" name="name" value="{{.Name}}">
+          <input name="domain" value="{{.Domain}}" placeholder="Website — espressif.com" spellcheck="false">
+          <input name="notes" value="{{.Notes}}" placeholder="Note">
+          <input type="file" name="logo" accept="image/*" aria-label="Upload a logo">
+          <button class="btn primary" type="submit">Fetch or upload</button>
+        </form>
+        {{if .Logo}}
+        <form method="post" action="/manufacturers/logo/clear">
+          <input type="hidden" name="name" value="{{.Name}}">
+          <button class="btn danger" type="submit">Remove the logo</button>
+        </form>
+        {{end}}
+      </div>
+    </details>
+  </li>
+  {{end}}
+</ul>
+
+<section class="panel-block">
+  <div class="section-head"><h2>Two names for one company?</h2></div>
+  <p class="muted">Abbreviations are folded in as you type them — TI becomes Texas Instruments, ST becomes
+    STMicroelectronics — but anything else that ended up spelled two ways can be merged here.</p>
+  <form class="price-add" method="post" action="/manufacturers/merge">
+    <select name="from" required>
+      <option value="">— move items from —</option>
+      {{range $d.Makers}}<option value="{{.Name}}">{{.Name}} ({{.Items}})</option>{{end}}
+    </select>
+    <input name="to" placeholder="…to this name" required list="maker-names">
+    <datalist id="maker-names">{{range $d.Makers}}<option value="{{.Name}}">{{end}}</datalist>
+    <button class="btn" type="submit">Merge</button>
+  </form>
+</section>
+{{else}}
+<div class="empty">
+  <p><strong>No manufacturer recorded on anything yet.</strong></p>
+  <p class="muted">Put a maker on a part — the field is on its edit page, and Octopart fills it in
+    for you — and this becomes a shelf organised by who made what, with each company's mark next
+    to it. Logos are looked up from the maker's own website.</p>
+  <p><a class="btn primary" href="/items">Go to the items</a></p>
+</div>
+{{end}}
+
+{{template "bottom" .}}
+{{end}}

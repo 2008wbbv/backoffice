@@ -14,7 +14,7 @@
   <button class="btn" type="submit">Search</button>
 </form>
 
-{{template "filterChips" dict "Query" $q "Categories" $d.Categories "Locations" $d.Locations "Tags" $d.Tags "IO" $d.IO}}
+{{template "filterChips" dict "Query" $q "Categories" $d.Categories "Locations" $d.Locations "Makers" $d.Makers "Tags" $d.Tags "IO" $d.IO}}
 
 {{if $q.Unfiled}}
 <p class="scope-note">Showing only items that aren't in a folder. <a href="/items">Show everything</a></p>

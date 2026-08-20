@@ -58,6 +58,12 @@ Everything is optional. The defaults are the intended setup.
 
 ## Using it
 
+The bar across the top carries the four places you go daily — **Items**,
+**Projects**, **Orders**, **Scan** — plus **+ Add**. Everything else (manufacturers,
+tags, calculators, labels, CSV, health, activity) lives behind **More**, which is a
+plain `<details>` menu and works without JavaScript. On a phone the bar folds to
+the same set.
+
 ### Folders
 
 The dashboard is organised into folders — "3D printer", "Bench drawers",
@@ -81,6 +87,40 @@ attach it. They're matched case-insensitively, so `SMD` and `smd` are one tag.
 Clicking tags on the dashboard or in the filter row **stacks** them — picking
 `smd` and then `0805` shows only items carrying both. Tags that stop being used
 disappear from the list on their own.
+
+### Manufacturers
+
+Who made a part is a field on the item, so it filters and facets like a category
+— but it also gets its own page at **Manufacturers**, listing every maker on the
+shelf with how many parts and pieces you hold, what they are worth, and a link to
+the maker's site.
+
+Names are settled on the way in, because a shelf sorted into `TI`, `Texas
+Instruments` and `texas instruments` is three piles of the same company:
+
+- **Abbreviations and old names fold in.** `TI` → Texas Instruments, `ST` →
+  STMicroelectronics, `Atmel` → Microchip, `Seeed` → Seeed Studio, `Espressif
+  Systems` → Espressif.
+- **Case never splits a maker.** Around a hundred makers are spelled the way they
+  spell themselves — `rohm` becomes ROHM, `sparkfun` becomes SparkFun — however
+  you type them.
+- **A maker nobody has heard of keeps the spelling you used first.** Type
+  "Bitsy Relay Werks" once and `BITSY RELAY WERKS` joins it rather than starting
+  a pile of its own.
+- **Anything that still ended up spelled two ways can be merged** from the
+  bottom of the Manufacturers page, which moves every item across.
+
+**Logos** are fetched from the maker's own website — the `apple-touch-icon` or
+the largest icon it declares, falling back to a favicon service — and stored
+locally, so pages work offline afterwards and your browser never calls out to
+anyone. The lookup runs in the background when you save a part whose maker is in
+the built-in table, so saving never waits on somebody else's web server, and it
+runs once per maker no matter how many parts you add at a time. You can also
+press **Get logo** yourself, give a maker a domain it could not guess, or upload
+a file — an uploaded logo always wins.
+
+A maker with no logo shows a coloured monogram derived from its name, so it is
+never a blank space, and the colour never moves between page loads.
 
 ### Finding parts without typing them out
 
@@ -516,7 +556,8 @@ three-column grid on white, and labels never break across pages.
 - **Drag and drop** — drag a product link from another tab onto the add form and
   it imports; drag an image file and it goes into the photo picker.
 - **Keyboard** — `/` focuses search, `n` opens the add form.
-- **CSV** — the `CSV` button exports the full inventory, folders and tags included.
+- **CSV** — the `CSV` button exports the full inventory, folders, tags and makers
+  included.
 - **Footprint** — a land pattern drawn to scale, with the part's real size in mm.
 - **Cases** — printable models found, kept, measured and drawn from their own geometry.
 - **Reorder at** — each item has its own low-stock line, set on its edit page.

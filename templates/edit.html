@@ -98,6 +98,12 @@
       <span>Part number</span>
       <input name="part_number" id="f-part_number" value="{{$it.PartNumber}}" placeholder="ESP32-WROOM-32E">
     </label>
+    <label class="field">
+      <span>Manufacturer <em>who made it</em></span>
+      <input name="manufacturer" value="{{$it.Manufacturer}}" list="makers"
+             placeholder="Espressif" autocomplete="off" spellcheck="false">
+      <datalist id="makers">{{range $d.Makers}}<option value="{{.Value}}">{{end}}</datalist>
+    </label>
   </div>
 
   <div class="field wide">

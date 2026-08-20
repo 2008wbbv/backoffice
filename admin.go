@@ -59,7 +59,6 @@ func (h Health) DatabaseSize() string { return humanBytes(h.DatabaseBytes) }
 func (h Health) WALSize() string      { return humanBytes(h.WALBytes) }
 func (h Health) PhotoSize() string    { return humanBytes(h.PhotoBytes) }
 func (h Health) DiskFree() string     { return humanBytes(h.DiskFreeBytes) }
-func (h Health) DiskSize() string     { return humanBytes(h.DiskTotal) }
 
 func (h Health) DiskPercent() int {
 	if h.DiskTotal <= 0 {

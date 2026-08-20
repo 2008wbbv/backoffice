@@ -510,13 +510,26 @@ func (a *App) handleEnrichFromOctopart(w http.ResponseWriter, r *http.Request) {
 
 	var added []string
 
+	// Octopart knows who made the part, which is the field nobody ever fills in
+	// by hand. It is only written when empty, so a name already chosen stands.
+	newManufacturer := ""
+	if detail.Manufacturer != "" && it.Manufacturer == "" {
+		it.Manufacturer = a.store.SettleManufacturer(detail.Manufacturer)
+		newManufacturer = it.Manufacturer
+		added = append(added, "manufacturer")
+	}
 	if len(detail.Specs) > 0 {
 		it.Specs = detail.Specs
+		added = append(added, fmt.Sprintf("%d specs", len(detail.Specs)))
+	}
+	if newManufacturer != "" || len(detail.Specs) > 0 {
 		if err := a.store.UpdateItem(it); err != nil {
 			a.fail(w, err, http.StatusInternalServerError)
 			return
 		}
-		added = append(added, fmt.Sprintf("%d specs", len(detail.Specs)))
+	}
+	if newManufacturer != "" {
+		a.fetchLogoFor(newManufacturer)
 	}
 
 	if detail.Datasheet != nil {

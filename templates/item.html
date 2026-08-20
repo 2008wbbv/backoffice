@@ -90,6 +90,18 @@
       {{if $it.Value}}<dt>Value / rating</dt><dd>{{$it.Value}}</dd>{{end}}
       <dt>Reorder at</dt><dd>{{$it.Threshold}}{{if $it.Low}} <span class="warn">— you are there</span>{{end}}</dd>
       {{if $it.PartNumber}}<dt>Part number</dt><dd><code>{{$it.PartNumber}}</code></dd>{{end}}
+      {{if $it.Manufacturer}}
+      <dt>Made by</dt>
+      <dd class="maker-line">
+        {{if $it.Maker.Logo}}
+          <img class="maker-chip" src="/media/thumb/{{$it.Maker.Logo}}" alt="" loading="lazy">
+        {{else}}
+          <span class="maker-chip maker-mark" style="--hue: {{hue $it.Manufacturer}}">{{monogram $it.Manufacturer}}</span>
+        {{end}}
+        <a href="/items?manufacturer={{$it.Manufacturer}}">{{$it.Manufacturer}}</a>
+        {{with $it.Maker.Site}}<a class="muted" href="{{.}}" target="_blank" rel="noreferrer noopener">↗</a>{{end}}
+      </dd>
+      {{end}}
       {{if $it.Link}}<dt>Link</dt><dd><a href="{{$it.Link}}" rel="noreferrer noopener" target="_blank">{{$it.Link}}</a></dd>{{end}}
       <dt>Updated</dt><dd>{{since $it.UpdatedAt}}</dd>
     </dl>

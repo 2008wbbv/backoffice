@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -88,6 +89,17 @@ type App struct {
 	search  *SearchHub
 	models  *ModelHub
 	started time.Time
+	// Whether saving a part may go and look for its maker's logo in the
+	// background. Off in tests, so a unit test never reaches the internet.
+	autoLogos bool
+	// The makers whose logo is being fetched right now. Saving five Espressif
+	// parts in a row should fetch one logo, not five.
+	fetching  map[string]bool
+	fetchLock sync.Mutex
+	// Maker logos, cached because every card on a grid asks for one.
+	logos      map[string]string
+	logosFresh bool
+	logoMu     sync.RWMutex
 }
 
 // sessionKeyPath is where the HMAC key for sessions lives. It is needed after
@@ -122,16 +134,18 @@ func main() {
 
 	fetcher := NewFetcher(cfg.AllowPrivate)
 	app := &App{
-		cfg:     cfg,
-		store:   store,
-		photos:  photos,
-		tmpl:    mustTemplates(),
-		auth:    auth,
-		fetcher: fetcher,
-		search:  NewSearchHub(fetcher, cfg),
-		models:  NewModelHub(fetcher, cfg),
-		started: time.Now(),
+		cfg:       cfg,
+		store:     store,
+		photos:    photos,
+		tmpl:      mustTemplates(),
+		auth:      auth,
+		fetcher:   fetcher,
+		search:    NewSearchHub(fetcher, cfg),
+		models:    NewModelHub(fetcher, cfg),
+		started:   time.Now(),
+		autoLogos: true,
 	}
+	app.bindTemplates()
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
@@ -211,6 +225,12 @@ func (a *App) routes() http.Handler {
 	// Prices
 	protected.HandleFunc("POST /items/{id}/price", a.handleSetPrice)
 	protected.HandleFunc("POST /items/{id}/price/delete", a.handleDeletePrice)
+
+	// Manufacturers, and their logos.
+	protected.HandleFunc("GET /manufacturers", a.handleManufacturers)
+	protected.HandleFunc("POST /manufacturers/logo", a.handleFetchLogo)
+	protected.HandleFunc("POST /manufacturers/logo/clear", a.handleClearLogo)
+	protected.HandleFunc("POST /manufacturers/merge", a.handleMergeManufacturer)
 
 	// Tags
 	protected.HandleFunc("GET /tags", a.handleTags)
@@ -320,6 +340,12 @@ func logRequests(next http.Handler) http.Handler {
 	})
 }
 
+// bindTemplates swaps in the template functions that have to read from the app
+// itself. They cannot go in templateFuncs, which runs before the app exists.
+func (a *App) bindTemplates() {
+	a.tmpl = a.tmpl.Funcs(template.FuncMap{"makerLogo": a.logoFor})
+}
+
 func mustTemplates() *template.Template {
 	return template.Must(template.New("").Funcs(templateFuncs()).ParseFS(templateFS, "templates/*.html"))
 }
@@ -377,8 +403,21 @@ func templateFuncs() template.FuncMap {
 			}
 			return false
 		},
-		"ioIcon": IconForInterface,
-		"slice":  func(v ...string) []string { return v },
+		// section marks the nav link for the part of the app you are in.
+		"section": func(p page, prefix string) bool {
+			return p.Path == prefix || strings.HasPrefix(p.Path, prefix+"/")
+		},
+
+		// The maker's mark. monogram and hue are the fallback for a maker with
+		// no logo; makerLogo is replaced with the real lookup by bindTemplates,
+		// and stands here only so the templates parse.
+		"monogram": monogram,
+		"hue": func(name string) int {
+			return Manufacturer{Name: name}.Hue()
+		},
+		"makerLogo": func(string) string { return "" },
+		"ioIcon":    IconForInterface,
+		"slice":     func(v ...string) []string { return v },
 
 		// bomCSV renders a parsed bill of materials back into the canonical CSV
 		// this app's own importer reads. The review step posts that instead of

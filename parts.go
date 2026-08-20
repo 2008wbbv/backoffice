@@ -108,22 +108,18 @@ var RefKinds = []string{"datasheet", "pinout", "manual", "guide", "schematic", "
 // --- interfaces -------------------------------------------------------------
 
 func (s *Store) attachInterfaces(items []Item, byID map[int64]int) error {
-	rows, err := s.db.Query(`SELECT item_id, name FROM item_interfaces ORDER BY name`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
+	return s.eachInChunks(itemIDs(byID), func(in string) string {
+		return `SELECT item_id, name FROM item_interfaces
+			WHERE item_id IN (` + in + `) ORDER BY name`
+	}, func(rows *sql.Rows) error {
 		var itemID int64
 		var name string
 		if err := rows.Scan(&itemID, &name); err != nil {
 			return err
 		}
-		if idx, ok := byID[itemID]; ok {
-			items[idx].Interfaces = append(items[idx].Interfaces, name)
-		}
-	}
-	return rows.Err()
+		items[byID[itemID]].Interfaces = append(items[byID[itemID]].Interfaces, name)
+		return nil
+	})
 }
 
 func setInterfacesTx(tx *sql.Tx, itemID int64, names []string) error {
@@ -164,22 +160,18 @@ func (s *Store) InterfaceFacets() ([]Facet, error) {
 // --- specs ------------------------------------------------------------------
 
 func (s *Store) attachSpecs(items []Item, byID map[int64]int) error {
-	rows, err := s.db.Query(`SELECT item_id, name, value FROM specs ORDER BY item_id, position, name`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
+	return s.eachInChunks(itemIDs(byID), func(in string) string {
+		return `SELECT item_id, name, value FROM specs
+			WHERE item_id IN (` + in + `) ORDER BY item_id, position, name`
+	}, func(rows *sql.Rows) error {
 		var itemID int64
 		var sp Spec
 		if err := rows.Scan(&itemID, &sp.Name, &sp.Value); err != nil {
 			return err
 		}
-		if idx, ok := byID[itemID]; ok {
-			items[idx].Specs = append(items[idx].Specs, sp)
-		}
-	}
-	return rows.Err()
+		items[byID[itemID]].Specs = append(items[byID[itemID]].Specs, sp)
+		return nil
+	})
 }
 
 func setSpecsTx(tx *sql.Tx, itemID int64, specs []Spec) error {
@@ -241,22 +233,17 @@ func (i Item) SpecText() string {
 // --- references -------------------------------------------------------------
 
 func (s *Store) attachRefs(items []Item, byID map[int64]int) error {
-	rows, err := s.db.Query(`SELECT id, item_id, kind, title, url, filename, position
-		FROM refs ORDER BY item_id, position, id`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
+	return s.eachInChunks(itemIDs(byID), func(in string) string {
+		return `SELECT id, item_id, kind, title, url, filename, position
+			FROM refs WHERE item_id IN (` + in + `) ORDER BY item_id, position, id`
+	}, func(rows *sql.Rows) error {
 		var r Reference
 		if err := rows.Scan(&r.ID, &r.ItemID, &r.Kind, &r.Title, &r.URL, &r.Filename, &r.Position); err != nil {
 			return err
 		}
-		if idx, ok := byID[r.ItemID]; ok {
-			items[idx].Refs = append(items[idx].Refs, r)
-		}
-	}
-	return rows.Err()
+		items[byID[r.ItemID]].Refs = append(items[byID[r.ItemID]].Refs, r)
+		return nil
+	})
 }
 
 func (s *Store) AddReference(r Reference) (int64, error) {
@@ -324,8 +311,6 @@ type PriceChange struct {
 	Latest float64
 	Points int
 }
-
-func (c PriceChange) Delta() float64 { return c.Latest - c.First }
 
 func (c PriceChange) Direction() string {
 	switch {
@@ -650,18 +635,23 @@ func (s *Store) projectParts(projectID int64) ([]ProjectPart, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	// One load of the inventory serves both the item lines and the buildable
+	// count on every sub-assembly line. It used to be loaded twice over, and a
+	// third time by the page itself.
+	if len(itemIDs) == 0 && len(subIDs) == 0 {
+		return parts, nil
+	}
+	items, err := s.ListItems(Query{})
+	if err != nil {
+		return nil, err
+	}
 	if len(subIDs) > 0 {
-		if err := s.attachSubAssemblies(parts); err != nil {
+		if err := s.attachSubAssemblies(parts, items); err != nil {
 			return nil, err
 		}
 	}
 	if len(itemIDs) == 0 {
 		return parts, nil
-	}
-
-	items, err := s.ListItems(Query{})
-	if err != nil {
-		return nil, err
 	}
 	byID := map[int64]*Item{}
 	index := map[int64]int{}
@@ -820,12 +810,8 @@ func (s *Store) SuggestForProject(p Project, limit int) ([]Item, error) {
 
 // attachSubAssemblies fills in each sub-assembly line: what the sub-project is
 // called, and how many complete copies of it the shelf could supply right now.
-func (s *Store) attachSubAssemblies(parts []ProjectPart) error {
+func (s *Store) attachSubAssemblies(parts []ProjectPart, items []Item) error {
 	boms, err := s.loadBOMs()
-	if err != nil {
-		return err
-	}
-	items, err := s.ListItems(Query{})
 	if err != nil {
 		return err
 	}

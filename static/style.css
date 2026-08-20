@@ -794,10 +794,6 @@ label.stack input { min-width: 150px; }
 .scan-card .qtybox { margin: 0 0 0 auto; }
 .scan-card .big-qty { font-size: 22px; }
 
-/* The flash toasts sit tight against the content below them on purpose; one
-   used as a section of its own needs the same gap as any other section. */
-.toast.standalone { margin-bottom: 26px; }
-
 /* --- 3D models ------------------------------------------------------------- */
 
 .grid.models .card .body { gap: 4px; }
@@ -838,3 +834,86 @@ label.stack input { min-width: 150px; }
   -webkit-box-orient: vertical; overflow: hidden;
 }
 .grid.models .card .loc, .grid.models .card .val { overflow: hidden; text-overflow: ellipsis; }
+
+/* --- manufacturers --------------------------------------------------------- */
+
+/* The monogram tile stands in for a logo. Its hue comes from the name, so a
+   maker keeps the same colour forever without anything being stored. */
+.maker-mark {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: hsl(var(--hue, 210) 45% 42%); color: #fff;
+  font-weight: 680; letter-spacing: .01em; border-radius: 8px;
+  width: 44px; height: 44px; font-size: 15px; flex: none;
+}
+.maker-mark.tiny { width: 15px; height: 15px; font-size: 8.5px; border-radius: 4px; letter-spacing: 0; }
+
+/* A real logo takes the monogram's place and its shape. Logos come off the
+   makers' own sites and are drawn for white backgrounds, so one is painted in
+   behind them rather than letting a dark logo vanish in dark mode. */
+.maker-mark.logo { background: #fff; object-fit: contain; padding: 1px; }
+.maker-mark.tiny.logo { padding: .5px; }
+
+.makers { list-style: none; margin: 0 0 26px; padding: 0; display: grid; gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.maker {
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+}
+.maker:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.maker-face { flex: none; line-height: 0; }
+.maker-face img {
+  width: 44px; height: 44px; object-fit: contain; border-radius: 8px;
+  background: #fff; padding: 3px;
+}
+.maker-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; font-size: 13px; }
+.maker-name { font-weight: 580; font-size: 14.5px; color: var(--text); }
+.maker-site { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.maker > .inline-form { margin-left: auto; }
+
+.maker-line { display: flex; align-items: center; gap: 7px; }
+.maker-chip { width: 20px; height: 20px; border-radius: 5px; flex: none; }
+img.maker-chip { object-fit: contain; background: #fff; padding: 1px; }
+.maker-chip.maker-mark { font-size: 9.5px; }
+
+.card .mk { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
+.chip .maker-mark.tiny { margin-right: 5px; }
+
+/* --- navigation ------------------------------------------------------------ */
+
+/* The bar carries the four places you go daily; the rest is behind More, which
+   is a <details> so it works with JavaScript off. */
+.topbar nav .btn.on {
+  background: var(--panel-2);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  color: var(--text); font-weight: 560;
+}
+.menu { position: relative; }
+.menu > summary { list-style: none; cursor: pointer; }
+.menu > summary::-webkit-details-marker { display: none; }
+.menu > summary::after { content: " ▾"; opacity: .6; font-size: 11px; }
+.menu[open] > summary { background: var(--panel-2); border-color: var(--accent); }
+.menu-panel {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; min-width: 210px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 5px; display: flex; flex-direction: column;
+  box-shadow: 0 12px 34px rgba(0,0,0,.3);
+}
+.menu-panel a, .menu-panel button {
+  display: block; width: 100%; text-align: left; padding: 8px 11px; border-radius: 8px;
+  color: var(--text); font: inherit; font-size: 14px; background: none; border: none; cursor: pointer;
+}
+.menu-panel a:hover, .menu-panel button:hover { background: var(--panel-2); text-decoration: none; }
+.menu-panel hr { border: none; border-top: 1px solid var(--line); margin: 5px 0; }
+.menu-panel form { margin: 0; }
+.menu-who { padding: 6px 11px 2px; font-size: 12px; color: var(--muted); }
+
+/* The flash sits above the page content and deliberately hugs it; anything else
+   using .toast is inside the flow and keeps normal spacing. */
+.toast.flash { margin: 12px auto -4px; }
+.toast:not(.flash) { margin: 0 auto 16px; }
+
+@media (max-width: 640px) {
+  .topbar { flex-wrap: wrap; gap: 6px; }
+  .topbar nav { gap: 5px; flex: 1; justify-content: flex-end; }
+  .topbar nav .btn { padding: 7px 9px; font-size: 13.5px; }
+}

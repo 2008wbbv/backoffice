@@ -15,20 +15,21 @@ import (
 // ESP32s, one specific SBC. Quantity lives on the item, not on a separate
 // stock table -- a homelab does not need lot tracking.
 type Item struct {
-	ID         int64
-	Name       string
-	Category   string
-	Quantity   int
-	Location   string
-	PartNumber string
-	Value      string
-	Link       string
-	Notes      string
-	FolderID   *int64
-	LowStock   int    // reorder when free stock reaches this
-	Footprint  string // KiCad land pattern name, e.g. Resistor_SMD:R_0805_2012Metric
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID           int64
+	Name         string
+	Category     string
+	Quantity     int
+	Location     string
+	PartNumber   string
+	Manufacturer string
+	Value        string
+	Link         string
+	Notes        string
+	FolderID     *int64
+	LowStock     int    // reorder when free stock reaches this
+	Footprint    string // KiCad land pattern name, e.g. Resistor_SMD:R_0805_2012Metric
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 
 	FolderName string
 	Tags       []Tag
@@ -246,15 +247,15 @@ func openDB(path string) (*sql.DB, error) {
 }
 
 const itemCols = `i.id, i.name, i.category, i.quantity, i.location, i.part_number,
-	i.value, i.link, i.notes, i.folder_id, i.low_stock, i.footprint,
+	i.manufacturer, i.value, i.link, i.notes, i.folder_id, i.low_stock, i.footprint,
 	i.created_at, i.updated_at, COALESCE(f.name, '')`
 
 func scanItem(s interface{ Scan(...any) error }) (Item, error) {
 	var it Item
 	var created, updated string
 	err := s.Scan(&it.ID, &it.Name, &it.Category, &it.Quantity, &it.Location,
-		&it.PartNumber, &it.Value, &it.Link, &it.Notes, &it.FolderID, &it.LowStock,
-		&it.Footprint, &created, &updated, &it.FolderName)
+		&it.PartNumber, &it.Manufacturer, &it.Value, &it.Link, &it.Notes,
+		&it.FolderID, &it.LowStock, &it.Footprint, &created, &updated, &it.FolderName)
 	if err != nil {
 		return it, err
 	}
@@ -265,20 +266,22 @@ func scanItem(s interface{ Scan(...any) error }) (Item, error) {
 
 // Query describes the filter state of the item grid. Every field is optional.
 type Query struct {
-	Search     string
-	Category   string
-	Location   string
-	Tags       []string // an item must carry all of these
-	Interfaces []string // and speak all of these
-	FolderID   *int64   // limit to one folder (with Recursive, its subtree too)
-	Unfiled    bool     // only items in no folder
-	Recursive  bool
-	Sort       string // "recent" (default), "name", "qty", "low"
+	Search       string
+	Category     string
+	Location     string
+	Manufacturer string
+	Tags         []string // an item must carry all of these
+	Interfaces   []string // and speak all of these
+	FolderID     *int64   // limit to one folder (with Recursive, its subtree too)
+	Unfiled      bool     // only items in no folder
+	Recursive    bool
+	Sort         string // "recent" (default), "name", "qty", "low"
 }
 
 func (q Query) Any() bool {
 	return q.Search != "" || q.Category != "" || q.Location != "" ||
-		len(q.Tags) > 0 || len(q.Interfaces) > 0 || q.FolderID != nil || q.Unfiled
+		q.Manufacturer != "" || len(q.Tags) > 0 || len(q.Interfaces) > 0 ||
+		q.FolderID != nil || q.Unfiled
 }
 
 // values renders the query as URL parameters. Folder scope is carried in the
@@ -293,6 +296,9 @@ func (q Query) values() url.Values {
 	}
 	if q.Location != "" {
 		v.Set("location", q.Location)
+	}
+	if q.Manufacturer != "" {
+		v.Set("manufacturer", q.Manufacturer)
 	}
 	if q.Sort != "" && q.Sort != "recent" {
 		v.Set("sort", q.Sort)
@@ -402,6 +408,10 @@ func (s *Store) ListItems(q Query) ([]Item, error) {
 		where = append(where, "i.location = ?")
 		args = append(args, q.Location)
 	}
+	if q.Manufacturer != "" {
+		where = append(where, "i.manufacturer = ? COLLATE NOCASE")
+		args = append(args, q.Manufacturer)
+	}
 	// Each tag gets its own EXISTS so multiple tags narrow rather than widen.
 	for _, tag := range q.Tags {
 		where = append(where, `EXISTS (SELECT 1 FROM item_tags it JOIN tags t ON t.id = it.tag_id
@@ -480,56 +490,98 @@ func (s *Store) ListItems(q Query) ([]Item, error) {
 	return items, nil
 }
 
-// attachPhotos and attachTags each cost one query for the whole page, rather
-// than two per item in the grid.
-func (s *Store) attachPhotos(items []Item, byID map[int64]int) error {
-	rows, err := s.db.Query(`SELECT id, item_id, filename, position FROM photos
-		ORDER BY item_id, position, id`)
-	if err != nil {
-		return err
+// --- loading related rows -----------------------------------------------------
+
+// Each attach* helper fills one kind of related row into a page of items with a
+// single query, rather than a query per item.
+//
+// They are scoped to the items actually being shown. That matters more than it
+// looks: they used to read their whole table and discard what did not match,
+// so opening one item read every photo, tag, price and specification in the
+// database. On a shelf with a couple of thousand parts that is the difference
+// between a page load and a pause.
+const idChunk = 900 // comfortably under any SQLite parameter limit
+
+// eachInChunks runs a query once per batch of ids, so an enormous grid cannot
+// exceed the bound-parameter limit.
+func (s *Store) eachInChunks(ids []int64, build func(placeholders string) string, scan func(*sql.Rows) error) error {
+	for start := 0; start < len(ids); start += idChunk {
+		batch := ids[start:min(start+idChunk, len(ids))]
+		args := make([]any, len(batch))
+		for i, id := range batch {
+			args[i] = id
+		}
+		rows, err := s.db.Query(build(placeholders(len(batch))), args...)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			if err := scan(rows); err != nil {
+				rows.Close()
+				return err
+			}
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
 	}
-	defer rows.Close()
-	for rows.Next() {
+	return nil
+}
+
+func placeholders(n int) string {
+	if n == 0 {
+		return "NULL"
+	}
+	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
+}
+
+// itemIDs is the key set of the index every attach helper is handed.
+func itemIDs(byID map[int64]int) []int64 {
+	ids := make([]int64, 0, len(byID))
+	for id := range byID {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
+}
+
+func (s *Store) attachPhotos(items []Item, byID map[int64]int) error {
+	return s.eachInChunks(itemIDs(byID), func(in string) string {
+		return `SELECT id, item_id, filename, position FROM photos
+			WHERE item_id IN (` + in + `) ORDER BY item_id, position, id`
+	}, func(rows *sql.Rows) error {
 		var p Photo
 		if err := rows.Scan(&p.ID, &p.ItemID, &p.Filename, &p.Position); err != nil {
 			return err
 		}
-		if idx, ok := byID[p.ItemID]; ok {
-			items[idx].Photos = append(items[idx].Photos, p)
-		}
-	}
-	return rows.Err()
+		items[byID[p.ItemID]].Photos = append(items[byID[p.ItemID]].Photos, p)
+		return nil
+	})
 }
 
 func (s *Store) attachTags(items []Item, byID map[int64]int) error {
-	rows, err := s.db.Query(`SELECT it.item_id, t.name, t.icon FROM item_tags it
-		JOIN tags t ON t.id = it.tag_id ORDER BY t.name COLLATE NOCASE`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
+	return s.eachInChunks(itemIDs(byID), func(in string) string {
+		return `SELECT it.item_id, t.name, t.icon FROM item_tags it
+			JOIN tags t ON t.id = it.tag_id
+			WHERE it.item_id IN (` + in + `) ORDER BY t.name COLLATE NOCASE`
+	}, func(rows *sql.Rows) error {
 		var itemID int64
 		var tag Tag
 		if err := rows.Scan(&itemID, &tag.Name, &tag.Icon); err != nil {
 			return err
 		}
-		if idx, ok := byID[itemID]; ok {
-			items[idx].Tags = append(items[idx].Tags, tag)
-		}
-	}
-	return rows.Err()
+		items[byID[itemID]].Tags = append(items[byID[itemID]].Tags, tag)
+		return nil
+	})
 }
 
-// attachPrices loads every item's recorded prices in one query.
 func (s *Store) attachPrices(items []Item, byID map[int64]int) error {
-	rows, err := s.db.Query(`SELECT item_id, source, amount, currency, url, lead_days, updated_at
-		FROM prices ORDER BY amount`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
+	return s.eachInChunks(itemIDs(byID), func(in string) string {
+		return `SELECT item_id, source, amount, currency, url, lead_days, updated_at
+			FROM prices WHERE item_id IN (` + in + `) ORDER BY amount`
+	}, func(rows *sql.Rows) error {
 		var itemID int64
 		var p Price
 		var updated string
@@ -537,11 +589,9 @@ func (s *Store) attachPrices(items []Item, byID map[int64]int) error {
 			return err
 		}
 		p.UpdatedAt, _ = time.Parse(time.RFC3339, updated)
-		if idx, ok := byID[itemID]; ok {
-			items[idx].Prices = append(items[idx].Prices, p)
-		}
-	}
-	return rows.Err()
+		items[byID[itemID]].Prices = append(items[byID[itemID]].Prices, p)
+		return nil
+	})
 }
 
 func (s *Store) GetItem(id int64) (Item, error) {
@@ -578,10 +628,10 @@ func (s *Store) CreateItem(it Item) (int64, error) {
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	res, err := tx.Exec(`INSERT INTO items
-		(name, category, quantity, location, part_number, value, link, notes,
-		 folder_id, low_stock, footprint, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		it.Name, it.Category, it.Quantity, it.Location, it.PartNumber,
+		(name, category, quantity, location, part_number, manufacturer, value, link,
+		 notes, folder_id, low_stock, footprint, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		it.Name, it.Category, it.Quantity, it.Location, it.PartNumber, it.Manufacturer,
 		it.Value, it.Link, it.Notes, it.FolderID, max(it.LowStock, 0), it.Footprint, now, now)
 	if err != nil {
 		return 0, err
@@ -610,10 +660,10 @@ func (s *Store) UpdateItem(it Item) error {
 	defer tx.Rollback()
 
 	_, err = tx.Exec(`UPDATE items SET
-		name=?, category=?, quantity=?, location=?, part_number=?,
+		name=?, category=?, quantity=?, location=?, part_number=?, manufacturer=?,
 		value=?, link=?, notes=?, folder_id=?, low_stock=?, updated_at=?
 		WHERE id=?`,
-		it.Name, it.Category, it.Quantity, it.Location, it.PartNumber,
+		it.Name, it.Category, it.Quantity, it.Location, it.PartNumber, it.Manufacturer,
 		it.Value, it.Link, it.Notes, it.FolderID, max(it.LowStock, 0),
 		time.Now().UTC().Format(time.RFC3339), it.ID)
 	if err != nil {
@@ -958,7 +1008,7 @@ type Facet struct {
 
 func (s *Store) Facets(column string) ([]Facet, error) {
 	switch column {
-	case "category", "location": // guard: column is interpolated below
+	case "category", "location", "manufacturer": // guard: column is interpolated below
 	default:
 		return nil, fmt.Errorf("facet: unsupported column %q", column)
 	}

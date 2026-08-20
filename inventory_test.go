@@ -38,7 +38,7 @@ func newTestApp(t *testing.T) *App {
 	if err != nil {
 		t.Fatalf("NewAuth: %v", err)
 	}
-	return &App{
+	app := &App{
 		cfg:     Config{DataDir: dir, Title: "Backoffice"},
 		store:   store,
 		photos:  photos,
@@ -49,6 +49,8 @@ func newTestApp(t *testing.T) *App {
 		// No shops by default: a unit test should not reach the internet.
 		search: &SearchHub{},
 	}
+	app.bindTemplates()
+	return app
 }
 
 func seed(t *testing.T, s *Store, items ...Item) []int64 {

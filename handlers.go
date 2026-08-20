@@ -17,6 +17,7 @@ import (
 // page carries everything the layout template needs on every render.
 type page struct {
 	Title    string
+	Path     string // for marking the current section in the nav
 	SiteName string
 	AuthOn   bool
 	User     *User // nil when signed in with the shared password, or with none
@@ -29,6 +30,7 @@ type page struct {
 func (a *App) render(w http.ResponseWriter, r *http.Request, name string, title string, data any) {
 	p := page{
 		Title:    title,
+		Path:     r.URL.Path,
 		SiteName: a.cfg.Title,
 		AuthOn:   a.auth.Enabled(),
 		User:     CurrentUser(r),
@@ -69,6 +71,7 @@ type indexData struct {
 	Items      []Item
 	Categories []Facet
 	Locations  []Facet
+	Makers     []Facet
 	Tags       []Facet
 	IO         []Facet
 	Folders    []*Folder
@@ -82,11 +85,12 @@ type indexData struct {
 func (a *App) queryFromRequest(r *http.Request) Query {
 	v := r.URL.Query()
 	q := Query{
-		Search:   strings.TrimSpace(v.Get("q")),
-		Category: v.Get("category"),
-		Location: v.Get("location"),
-		Sort:     v.Get("sort"),
-		Unfiled:  v.Get("unfiled") == "1",
+		Search:       strings.TrimSpace(v.Get("q")),
+		Category:     v.Get("category"),
+		Location:     v.Get("location"),
+		Manufacturer: v.Get("manufacturer"),
+		Sort:         v.Get("sort"),
+		Unfiled:      v.Get("unfiled") == "1",
 	}
 	for _, t := range v["tag"] {
 		if t = strings.TrimSpace(t); t != "" {
@@ -145,6 +149,7 @@ func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
 		Items:      items,
 		Categories: cats,
 		Locations:  locs,
+		Makers:     a.facetsOrNil("manufacturer"),
 		Tags:       tags,
 		IO:         io,
 		Folders:    FlattenFolders(tree),
@@ -165,6 +170,7 @@ type itemData struct {
 	RefKinds []string
 	Land     *Footprint // the drawing, when this part has a footprint recorded
 	LandErr  string
+	Maker    Manufacturer
 	Incoming int // on its way from an order that has not arrived
 }
 
@@ -188,6 +194,9 @@ func (a *App) handleItem(w http.ResponseWriter, r *http.Request) {
 	}
 	if incoming, err := a.store.Incoming(); err == nil {
 		data.Incoming = incoming[it.ID]
+	}
+	if it.Manufacturer != "" {
+		data.Maker, _ = a.store.GetManufacturer(it.Manufacturer)
 	}
 	// The footprint is drawn from the cached file, so an item page never waits
 	// on the network: only the first lookup fetches, and that happens when the
@@ -224,6 +233,7 @@ func (a *App) handleNewForm(w http.ResponseWriter, r *http.Request) {
 		Item:       item,
 		Categories: a.facetsOrNil("category"),
 		Locations:  a.facetsOrNil("location"),
+		Makers:     a.facetsOrNil("manufacturer"),
 		Tags:       a.tagFacetsOrNil(),
 		Folders:    a.folderListOrNil(),
 		IOGroups:   InterfaceGroups(),
@@ -260,6 +270,7 @@ type editData struct {
 	Item       Item
 	Categories []Facet
 	Locations  []Facet
+	Makers     []Facet
 	Tags       []Facet
 	Folders    []*Folder
 	IOGroups   []InterfaceGroup
@@ -285,6 +296,7 @@ func (a *App) handleEditForm(w http.ResponseWriter, r *http.Request) {
 		Item:       it,
 		Categories: a.facetsOrNil("category"),
 		Locations:  a.facetsOrNil("location"),
+		Makers:     a.facetsOrNil("manufacturer"),
 		Tags:       a.tagFacetsOrNil(),
 		Folders:    a.folderListOrNil(),
 		IOGroups:   InterfaceGroups(),
@@ -324,14 +336,17 @@ func itemFromForm(r *http.Request) (Item, error) {
 		Quantity:   qty,
 		Location:   strings.TrimSpace(r.FormValue("location")),
 		PartNumber: strings.TrimSpace(r.FormValue("part_number")),
-		Value:      strings.TrimSpace(r.FormValue("value")),
-		Tags:       tags,
-		Link:       strings.TrimSpace(r.FormValue("link")),
-		Notes:      strings.TrimSpace(r.FormValue("notes")),
-		FolderID:   optionalID(r.FormValue("folder_id")),
-		LowStock:   low,
-		Interfaces: r.Form["interface"],
-		Specs:      ParseSpecs(r.FormValue("specs")),
+		// Canonicalised on the way in, so "TI" and "Texas Instruments" do not
+		// become two makers with two logos and two filter chips.
+		Manufacturer: CanonicalManufacturer(r.FormValue("manufacturer")),
+		Value:        strings.TrimSpace(r.FormValue("value")),
+		Tags:         tags,
+		Link:         strings.TrimSpace(r.FormValue("link")),
+		Notes:        strings.TrimSpace(r.FormValue("notes")),
+		FolderID:     optionalID(r.FormValue("folder_id")),
+		LowStock:     low,
+		Interfaces:   r.Form["interface"],
+		Specs:        ParseSpecs(r.FormValue("specs")),
 	}, nil
 }
 
@@ -349,6 +364,7 @@ func (a *App) handleCreate(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "/items/new", "", err.Error())
 		return
 	}
+	it.Manufacturer = a.store.SettleManufacturer(it.Manufacturer)
 	id, err := a.store.CreateItem(it)
 	if err != nil {
 		a.fail(w, err, http.StatusInternalServerError)
@@ -359,6 +375,7 @@ func (a *App) handleCreate(w http.ResponseWriter, r *http.Request) {
 		msg = strings.TrimPrefix(msg+"; "+urlMsg, "; ")
 	}
 	a.savePriceFromForm(r, id)
+	a.fetchLogoFor(it.Manufacturer)
 	a.store.Record(a.actor(r), "added an item", "item", id, it.Name)
 	redirect(w, r, fmt.Sprintf("/items/%d", id), "Added "+it.Name, msg)
 }
@@ -378,6 +395,7 @@ func (a *App) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	it.ID = id
+	it.Manufacturer = a.store.SettleManufacturer(it.Manufacturer)
 	if err := a.store.UpdateItem(it); err != nil {
 		a.fail(w, err, http.StatusInternalServerError)
 		return
@@ -387,6 +405,7 @@ func (a *App) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		msg = strings.TrimPrefix(msg+"; "+urlMsg, "; ")
 	}
 	a.savePriceFromForm(r, id)
+	a.fetchLogoFor(it.Manufacturer)
 	a.store.Record(a.actor(r), "edited an item", "item", id, it.Name)
 	redirect(w, r, fmt.Sprintf("/items/%d", id), "Saved", msg)
 }
@@ -602,12 +621,12 @@ func (a *App) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	cw := csv.NewWriter(w)
 	defer cw.Flush()
 	cw.Write([]string{"id", "name", "category", "quantity", "location", "part_number",
-		"value", "tags", "link", "notes", "folder", "photos", "updated_at"})
+		"manufacturer", "value", "tags", "link", "notes", "folder", "photos", "updated_at"})
 	for _, it := range items {
 		cw.Write([]string{
 			strconv.FormatInt(it.ID, 10), it.Name, it.Category, strconv.Itoa(it.Quantity),
-			it.Location, it.PartNumber, it.Value, it.TagString(), it.Link, it.Notes,
-			it.FolderName,
+			it.Location, it.PartNumber, it.Manufacturer, it.Value, it.TagString(),
+			it.Link, it.Notes, it.FolderName,
 			strconv.Itoa(len(it.Photos)), it.UpdatedAt.Format("2006-01-02 15:04"),
 		})
 	}

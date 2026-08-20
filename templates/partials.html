@@ -1,5 +1,14 @@
 {{/* itemCard is the grid tile, shared by the dashboard, the all-items grid and
      each folder view so they cannot drift apart. */}}
+
+{{/* makerMark is the maker's logo where there is one and its monogram where
+     there is not, so a maker is never a blank space. The logo comes from a
+     cached lookup rather than the item, which is what lets every card ask. */}}
+{{define "makerMark"}}
+  {{$logo := makerLogo .}}
+  {{if $logo}}<img class="maker-mark tiny logo" src="/media/thumb/{{$logo}}" alt="" loading="lazy" decoding="async">
+  {{else}}<span class="maker-mark tiny" style="--hue: {{hue .}}">{{monogram .}}</span>{{end}}
+{{end}}
 {{define "itemCard"}}
 <li class="card" data-id="{{.ID}}">
   <a class="thumb" href="/items/{{.ID}}">
@@ -15,6 +24,7 @@
     <a class="name" href="/items/{{.ID}}">{{.Name}}</a>
     {{if .Value}}<div class="val">{{.Value}}</div>{{end}}
     {{if .Location}}<div class="loc">{{.Location}}</div>{{end}}
+    {{if .Manufacturer}}<div class="mk">{{template "makerMark" .Manufacturer}}{{.Manufacturer}}</div>{{end}}
     {{if .FolderName}}<div class="fold"><a href="/folders/{{.FolderRef}}">{{.FolderName}}</a></div>{{end}}
     {{if .Interfaces}}
     <div class="card-io">
@@ -42,11 +52,12 @@
 </li>
 {{end}}
 
-{{/* filterChips renders the type / location / tag rows. Expects a dict of
-     "Query", "Categories", "Locations" and "Tags". */}}
+{{/* filterChips renders the type / location / maker / IO / tag rows. Expects a
+     dict of "Query" plus any of "Categories", "Locations", "Makers", "IO" and
+     "Tags"; each row is skipped when its list is empty. */}}
 {{define "filterChips"}}
 {{$q := .Query}}
-{{if or .Categories .Locations .Tags .IO}}
+{{if or .Categories .Locations .Tags .IO .Makers}}
 <div class="filters">
   {{if .Categories}}
   <div class="filter-row">
@@ -62,6 +73,16 @@
     {{range .Locations}}
       <a class="chip{{if eq $q.Location .Value}} on{{end}}" href="{{query $q "location" .Value}}">{{.Value}} <span class="n">{{.Count}}</span></a>
     {{end}}
+  </div>
+  {{end}}
+  {{if .Makers}}
+  <div class="filter-row">
+    <span class="filter-label">Made by</span>
+    {{range .Makers}}
+      <a class="chip{{if eq $q.Manufacturer .Value}} on{{end}}" href="{{query $q "manufacturer" .Value}}">
+        {{template "makerMark" .Value}}{{.Value}} <span class="n">{{.Count}}</span></a>
+    {{end}}
+    <a class="chip sm" href="/manufacturers">all makers ↗</a>
   </div>
   {{end}}
   {{if .IO}}

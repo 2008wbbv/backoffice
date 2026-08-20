@@ -489,6 +489,25 @@ CREATE TABLE models (
 CREATE INDEX idx_models ON models(item_id, position, id);
 `,
 	},
+	{
+		name: "manufacturers",
+		sql: `
+-- Who made the part. It sits on the item like category and location do, so it
+-- becomes a filter and a facet for free; the table beside it exists only to
+-- hang a logo and a website off the name.
+ALTER TABLE items ADD COLUMN manufacturer TEXT NOT NULL DEFAULT '';
+CREATE INDEX idx_items_manufacturer ON items(manufacturer);
+
+CREATE TABLE manufacturers (
+	name       TEXT PRIMARY KEY COLLATE NOCASE,
+	domain     TEXT NOT NULL DEFAULT '',
+	url        TEXT NOT NULL DEFAULT '',
+	logo       TEXT NOT NULL DEFAULT '',
+	notes      TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL
+);
+`,
+	},
 }
 
 func migrate(db *sql.DB) error {
