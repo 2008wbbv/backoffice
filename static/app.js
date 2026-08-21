@@ -658,3 +658,73 @@ document.querySelectorAll('[data-scanner]').forEach((root) => {
   stopBtn.addEventListener('click', stop);
   window.addEventListener('pagehide', stop);
 });
+
+/* --- appearance ------------------------------------------------------------
+ *
+ * Three states, not two: light, dark, and following the system. "System" is
+ * the default and has to stay reachable, because somebody whose laptop flips
+ * at sunset wants that back after trying the other two.
+ *
+ * The <head> applies the saved choice before first paint; this only handles
+ * changing it. With this script blocked the page still renders in the system
+ * scheme, so nothing here is load-bearing. */
+(function () {
+  const root = document.documentElement;
+
+  function read() {
+    try {
+      const v = localStorage.getItem('theme');
+      return v === 'light' || v === 'dark' ? v : 'system';
+    } catch (e) {
+      return 'system'; // private mode, or storage switched off
+    }
+  }
+
+  function apply(choice) {
+    if (choice === 'system') {
+      root.removeAttribute('data-theme');
+    } else {
+      root.setAttribute('data-theme', choice);
+    }
+    try {
+      if (choice === 'system') localStorage.removeItem('theme');
+      else localStorage.setItem('theme', choice);
+    } catch (e) { /* the page still looks right, it just will not persist */ }
+    mark(choice);
+  }
+
+  function mark(choice) {
+    document.querySelectorAll('[data-theme-set]').forEach(function (b) {
+      const on = b.dataset.themeSet === choice;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    mark(read());
+    document.querySelectorAll('[data-theme-set]').forEach(function (b) {
+      b.addEventListener('click', function () { apply(b.dataset.themeSet); });
+    });
+  });
+})();
+
+/* --- menus -----------------------------------------------------------------
+ *
+ * A <details> menu is keyboard-accessible on its own, but it will not close
+ * when you click away from it or press Escape, which every real menu does. */
+(function () {
+  document.addEventListener('click', function (e) {
+    document.querySelectorAll('details.menu[open]').forEach(function (d) {
+      if (!d.contains(e.target)) d.removeAttribute('open');
+    });
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    document.querySelectorAll('details.menu[open]').forEach(function (d) {
+      d.removeAttribute('open');
+      const s = d.querySelector('summary');
+      if (s) s.focus();
+    });
+  });
+})();

@@ -27,8 +27,6 @@ type sexp struct {
 	list []*sexp
 }
 
-func (s *sexp) isList() bool { return s.list != nil || s.atom == "" }
-
 // head is the first atom of a list, which is what names the node: "pad",
 // "fp_line", "at" and so on.
 func (s *sexp) head() string {

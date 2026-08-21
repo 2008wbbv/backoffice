@@ -728,14 +728,6 @@ func (s *Store) AddProjectPart(projectID int64, itemID *int64, name string, qty 
 	return s.touchProject(projectID)
 }
 
-func (s *Store) UpdateProjectPart(partID int64, qty int, note string) error {
-	if qty < 1 {
-		qty = 1
-	}
-	_, err := s.db.Exec(`UPDATE project_parts SET quantity = ?, note = ? WHERE id = ?`, qty, note, partID)
-	return err
-}
-
 func (s *Store) DeleteProjectPart(partID int64) (int64, error) {
 	var projectID int64
 	if err := s.db.QueryRow(`SELECT project_id FROM project_parts WHERE id = ?`, partID).Scan(&projectID); err != nil {

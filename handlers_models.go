@@ -231,8 +231,14 @@ var remoteImageHosts = map[string]bool{
 	"cdn.thangs.com":       true,
 }
 
-// handleRemoteImage streams a search result's thumbnail through the same
-// SSRF-guarded fetcher everything else uses.
+// handleRemoteImage serves a search result's thumbnail through the same
+// SSRF-guarded fetcher everything else uses, and keeps a copy on disk.
+//
+// Without the cache, every look at a page of results re-fetched a dozen images
+// from somebody else's server: slow, rude, and it means the same page looks
+// different when the site is down. Cached, a case you have looked at once
+// stays visible offline. The cache is keyed by the URL, lives beside the
+// photos, and is disposable -- deleting it costs a refetch and nothing else.
 func (a *App) handleRemoteImage(w http.ResponseWriter, r *http.Request) {
 	raw := r.URL.Query().Get("u")
 	u, err := parseTarget(raw)
@@ -244,21 +250,34 @@ func (a *App) handleRemoteImage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "that host is not one of the model sites", http.StatusForbidden)
 		return
 	}
+
+	serve := func(body []byte) {
+		ext := sniffFormat(body)
+		if ext == "" {
+			http.Error(w, "that was not an image", http.StatusBadGateway)
+			return
+		}
+		if ext == "jpg" {
+			ext = "jpeg"
+		}
+		w.Header().Set("Content-Type", "image/"+ext)
+		// A thumbnail at a content URL never changes, so let the browser keep
+		// it for a day too and skip the round trip entirely.
+		w.Header().Set("Cache-Control", "private, max-age=86400")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+		w.Write(body)
+	}
+
+	if body, ok := a.photos.CachedRemote(u.String()); ok {
+		serve(body)
+		return
+	}
 	body, err := a.fetcher.FetchImage(r.Context(), u.String())
 	if err != nil {
 		http.Error(w, "could not fetch that image", http.StatusBadGateway)
 		return
 	}
-	ext := sniffFormat(body)
-	if ext == "" {
-		http.Error(w, "that was not an image", http.StatusBadGateway)
-		return
-	}
-	if ext == "jpg" {
-		ext = "jpeg"
-	}
-	w.Header().Set("Content-Type", "image/"+ext)
-	w.Header().Set("Cache-Control", "private, max-age=3600")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
-	w.Write(body)
+	// A cache that cannot be written is not worth failing the request over.
+	a.photos.CacheRemote(u.String(), body)
+	serve(body)
 }

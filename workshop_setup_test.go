@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -202,6 +204,95 @@ func TestShelfSuggestionsOnlyNamePartsYouActuallyHave(t *testing.T) {
 	// An empty shelf gets no suggestions rather than generic ones.
 	if got := SuggestFromShelf(nil, caps, 8); len(got) != 0 {
 		t.Errorf("an empty shelf produced %d ideas", len(got))
+	}
+}
+
+// A shelf of Raspberry Pis used to produce no ideas at all: every recipe asked
+// for a "controller" and a Pi is a "computer", so nothing ever matched.
+func TestASingleBoardComputerCountsAsABrain(t *testing.T) {
+	pi := []Item{
+		{ID: 1, Name: "Raspberry Pi", Quantity: 1},
+		{ID: 2, Name: "TMP35", Quantity: 5},
+	}
+	ideas := SuggestFromShelf(pi, Capabilities{}, 8)
+	if len(ideas) == 0 {
+		t.Fatal("a Raspberry Pi and a temperature sensor produced no ideas")
+	}
+
+	// Both parts have to be recognised in the first place.
+	for _, name := range []string{"Raspberry Pi", "Raspberry Pi 4", "Raspberry Pi 5 8GB"} {
+		if got := roleOf(Item{Name: name}); got != "computer" {
+			t.Errorf("roleOf(%q) = %q, want computer", name, got)
+		}
+	}
+	// ...but a Pico is a microcontroller, not a computer.
+	if got := roleOf(Item{Name: "Raspberry Pi Pico W"}); got != "controller" {
+		t.Errorf("roleOf(Pico) = %q, want controller", got)
+	}
+	for _, name := range []string{"TMP35", "TMP36", "LM35", "10k thermistor", "MAX6675"} {
+		if got := roleOf(Item{Name: name}); got != "environment" {
+			t.Errorf("roleOf(%q) = %q, want environment", name, got)
+		}
+	}
+}
+
+func TestAPiReadingAnAnalogueSensorIsToldItNeedsAConverter(t *testing.T) {
+	pi := []Item{
+		{ID: 1, Name: "Raspberry Pi", Quantity: 1},
+		{ID: 2, Name: "TMP35", Quantity: 5},
+	}
+	ideas := SuggestFromShelf(pi, Capabilities{}, 8)
+	if len(ideas) == 0 {
+		t.Fatal("no ideas")
+	}
+	idea := ideas[0]
+
+	var adc *IdeaPart
+	for i := range idea.Parts {
+		if idea.Parts[i].Role == "adc" {
+			adc = &idea.Parts[i]
+		}
+	}
+	if adc == nil {
+		t.Fatal("a Pi was told to read an analogue sensor with no converter — it has no ADC")
+	}
+	if adc.Have {
+		t.Error("a converter nobody owns was marked as being on the shelf")
+	}
+	if idea.Buildable() {
+		t.Error("the idea claims to be buildable while a part is missing")
+	}
+	// The reasoning must not claim you own the thing you have to buy.
+	if strings.Contains(idea.Detail, "already have "+adc.Name) ||
+		strings.Contains(idea.Detail, "and "+adc.Name+".") {
+		t.Errorf("the shopping list was described as things you own: %q", idea.Detail)
+	}
+	if !strings.Contains(idea.Detail, "no analogue input") {
+		t.Errorf("the reason the converter is needed was not explained: %q", idea.Detail)
+	}
+
+	// With a converter already on the shelf it is ticked off, not bought --
+	// even though "ADS1115 16-bit ADC" matches no role of its own.
+	withADC := append(pi, Item{ID: 3, Name: "ADS1115 16-bit ADC", Quantity: 2})
+	got := SuggestFromShelf(withADC, Capabilities{}, 8)
+	if len(got) == 0 {
+		t.Fatal("no ideas with the converter present")
+	}
+	if !got[0].Buildable() {
+		t.Errorf("the converter on the shelf was not found: %+v", got[0].Parts)
+	}
+
+	// A microcontroller reads it straight, so no converter should appear.
+	esp := []Item{
+		{ID: 1, Name: "ESP32 devkit", Quantity: 1},
+		{ID: 2, Name: "TMP35", Quantity: 5},
+	}
+	for _, i := range SuggestFromShelf(esp, Capabilities{}, 8) {
+		for _, p := range i.Parts {
+			if p.Role == "adc" {
+				t.Error("an ESP32 was told it needs an external ADC; it has one built in")
+			}
+		}
 	}
 }
 
@@ -683,5 +774,165 @@ func TestDiagramEscapesWhatComesFromTheDatabase(t *testing.T) {
 	}
 	if !strings.Contains(svg, "&lt;script&gt;") {
 		t.Error("the name was dropped rather than escaped")
+	}
+}
+
+// --- the header: who you are, and how the page looks ------------------------
+
+func TestAccountMenuSaysWhoYouAreWithNoAccounts(t *testing.T) {
+	app := newTestApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	// With no accounts and no profile, the button still has to say something.
+	if body := get(t, srv.URL+"/items"); !strings.Contains(body, ">You<") {
+		t.Error("with nothing set up, the account button has no name on it")
+	}
+
+	// Once a name is given, that is the name.
+	if err := app.store.SaveProfile(Profile{Name: "Ben", Units: "mm"}); err != nil {
+		t.Fatalf("SaveProfile: %v", err)
+	}
+	body := get(t, srv.URL+"/items")
+	if !strings.Contains(body, "Ben") {
+		t.Error("the profile name did not reach the account button")
+	}
+	// Nobody to switch to, so no switcher.
+	if strings.Contains(body, "Switch to") {
+		t.Error("a switcher was offered with no other accounts to switch to")
+	}
+}
+
+func TestAccountMenuOffersTheOtherAccountsButStillAsksForThePassword(t *testing.T) {
+	app := newTestApp(t)
+	for _, name := range []string{"ada", "bob"} {
+		if _, err := app.store.CreateUser(name, "correct horse battery", name == "ada"); err != nil {
+			t.Fatalf("CreateUser %s: %v", name, err)
+		}
+	}
+	// Rebuilding auth is what picks up accounts written straight to the table:
+	// the handler path also mints the session key, which sessions need.
+	auth, err := NewAuth("", filepath.Join(app.cfg.DataDir, "session.key"), app.store)
+	if err != nil {
+		t.Fatalf("NewAuth: %v", err)
+	}
+	app.auth = auth
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("cookiejar: %v", err)
+	}
+	client := &http.Client{Jar: jar}
+
+	res, err := client.PostForm(srv.URL+"/login", map[string][]string{
+		"username": {"ada"}, "password": {"correct horse battery"},
+	})
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	res.Body.Close()
+
+	res, err = client.Get(srv.URL + "/items")
+	if err != nil {
+		t.Fatalf("GET /items: %v", err)
+	}
+	body := readAll(t, res.Body)
+	res.Body.Close()
+
+	if !strings.Contains(body, ">ada<") {
+		t.Errorf("the signed-in account is not on the button:\n%s", firstLines(body, 6))
+	}
+	if !strings.Contains(body, "Switch to") || !strings.Contains(body, "/login?as=bob") {
+		t.Error("the other account is not offered in the menu")
+	}
+	if strings.Contains(body, "/login?as=ada") {
+		t.Error("the menu offers switching to the account already signed in")
+	}
+
+	// Switching goes through the sign-in form, with the name filled in and the
+	// password still required. Anything else would be a hole, not a feature.
+	res, err = client.Get(srv.URL + "/login?as=bob")
+	if err != nil {
+		t.Fatalf("GET /login: %v", err)
+	}
+	login := readAll(t, res.Body)
+	res.Body.Close()
+	if !strings.Contains(login, `value="bob"`) {
+		t.Errorf("the sign-in form did not prefill the account being switched to:\n%s",
+			firstLines(login, 24))
+	}
+	if !strings.Contains(login, `name="password"`) {
+		t.Error("the sign-in form skipped the password")
+	}
+	// And it really is still ada until the password is given.
+	res, err = client.Get(srv.URL + "/items")
+	if err != nil {
+		t.Fatalf("GET /items: %v", err)
+	}
+	after := readAll(t, res.Body)
+	res.Body.Close()
+	if !strings.Contains(after, ">ada<") {
+		t.Error("visiting the switch link changed who is signed in without a password")
+	}
+}
+
+func TestThemeChoiceCanBeatTheSystemInBothDirections(t *testing.T) {
+	css, err := staticFS.ReadFile("static/style.css")
+	if err != nil {
+		t.Fatalf("read stylesheet: %v", err)
+	}
+	sheet := string(css)
+
+	// Light defined only inside the media query would make the toggle one-way:
+	// somebody on a light laptop could never choose dark.
+	if !strings.Contains(sheet, `:root[data-theme="light"]`) {
+		t.Error("no explicit light theme, so Light cannot override a dark system")
+	}
+	if !strings.Contains(sheet, `:root:not([data-theme="dark"])`) {
+		t.Error("the light media query is not guarded, so Dark cannot override a light system")
+	}
+
+	// The choice has to be applied before the stylesheet paints or every load
+	// flashes the wrong colours.
+	layout, err := templateFS.ReadFile("templates/layout.html")
+	if err != nil {
+		t.Fatalf("read layout: %v", err)
+	}
+	head := string(layout)
+	script := strings.Index(head, "localStorage.getItem('theme')")
+	sheetLink := strings.Index(head, `href="/static/style.css"`)
+	if script < 0 || sheetLink < 0 {
+		t.Fatal("the theme script or the stylesheet link is missing from the layout")
+	}
+	if script > sheetLink {
+		t.Error("the theme is applied after the stylesheet loads, which flashes on every page")
+	}
+}
+
+func TestEveryIconOnlyButtonHasAName(t *testing.T) {
+	// A button whose only content is a glyph reads as "times" or nothing at all
+	// to a screen reader unless it is given a label.
+	names, err := templateFS.ReadDir("templates")
+	if err != nil {
+		t.Fatalf("read templates: %v", err)
+	}
+	for _, f := range names {
+		body, err := templateFS.ReadFile("templates/" + f.Name())
+		if err != nil {
+			t.Fatalf("read %s: %v", f.Name(), err)
+		}
+		for _, line := range strings.Split(string(body), "\n") {
+			if !strings.Contains(line, "<button") {
+				continue
+			}
+			for _, glyph := range []string{">×<", ">✕<", ">＋<"} {
+				if strings.Contains(line, glyph) && !strings.Contains(line, "aria-label") {
+					t.Errorf("%s: icon-only button with no aria-label:\n  %s",
+						f.Name(), strings.TrimSpace(line))
+				}
+			}
+		}
 	}
 }

@@ -40,7 +40,7 @@ Rigol DS1054Z oscilloscope"></textarea>
 </details>
 
 {{range $d.Groups}}
-<h2 class="tool-head"><span class="tool-icon">{{.Icon}}</span> {{.Label}}</h2>
+<h2 class="tool-head">{{.Label}} <span class="count">{{len .Tools}}</span></h2>
 <ul class="tools">
   {{range .Tools}}
   <li class="tool">
@@ -67,8 +67,9 @@ Rigol DS1054Z oscilloscope"></textarea>
       </form>
     </details>
     <form method="post" action="/workshop/tools/{{.ID}}/delete"
-          onsubmit="return confirm('Remove {{.Name}}?')">
-      <button class="btn tiny danger" type="submit">×</button>
+          data-confirm="Remove {{.Name}} from the workshop?">
+      <button class="btn tiny danger" type="submit" aria-label="Remove {{.Name}}">
+        <span aria-hidden="true">×</span></button>
     </form>
   </li>
   {{end}}

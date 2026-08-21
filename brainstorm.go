@@ -101,7 +101,7 @@ var roleRules = []roleRule{
 		"arduino", "nano", "uno", "mega", "teensy", "stm32", "blue pill", "attiny",
 		"atmega", "nrf52", "microcontroller", "devkit", "dev board", "xiao", "d1 mini",
 		"feather", "qt py", "particle", "wroom", "wrover"}},
-	{"computer", []string{"raspberry pi 3", "raspberry pi 4", "raspberry pi 5", "pi zero",
+	{"computer", []string{"raspberry pi", "pi zero",
 		"orange pi", "banana pi", "rock pi", "odroid", "jetson", "beaglebone", "sbc",
 		"mini pc", "thin client"}},
 	{"camera", []string{"camera", "ov2640", "ov5640", "esp32-cam", "webcam", "imx"}},
@@ -116,7 +116,9 @@ var roleRules = []roleRule{
 		"mcp2515", "switch", "router", "access point"}},
 	{"environment", []string{"bme280", "bme680", "bmp280", "dht11", "dht22", "sht30",
 		"sht31", "sht40", "aht20", "ds18b20", "scd30", "scd40", "mh-z19", "co2",
-		"pms5003", "particulate", "temperature", "humidity", "barometer", "air quality"}},
+		"pms5003", "particulate", "temperature", "humidity", "barometer", "air quality",
+		"tmp35", "tmp36", "tmp37", "lm35", "lm34", "thermistor", "ntc", "thermocouple",
+		"max6675", "max31855", "pt100", "pt1000", "tmp117", "si7021", "hdc1080"}},
 	{"motion", []string{"pir", "hc-sr501", "radar", "ld2410", "rcwl", "accelerometer",
 		"gyro", "imu", "mpu6050", "mpu9250", "bno055", "lsm6ds", "tilt", "vibration",
 		"motion"}},
@@ -198,8 +200,12 @@ func tagWords(it Item) string {
 // both suggesters want.
 type Shelf struct {
 	ByRole map[string][]Item
-	Items  int
-	Roles  []string
+	// Everything in stock, including the parts no role rule recognised. A
+	// converter, a level shifter or a connector has no role in a recipe but is
+	// still on the shelf, and answering "do you own one" needs the whole list.
+	All   []Item
+	Items int
+	Roles []string
 }
 
 // ReadShelf sorts the inventory into roles, keeping only parts you have in
@@ -210,6 +216,7 @@ func ReadShelf(items []Item) Shelf {
 		if it.Available() < 1 {
 			continue
 		}
+		s.All = append(s.All, it)
 		role := roleOf(it)
 		if role == "" {
 			continue
@@ -324,12 +331,63 @@ func SuggestFromShelf(items []Item, caps Capabilities, limit int) []Idea {
 	return out
 }
 
+// analogueParts are the sensors that hand back a voltage rather than a number.
+// It matters because it decides whether a given brain can read them at all.
+var analogueParts = []string{
+	"tmp35", "tmp36", "tmp37", "lm35", "lm34", "thermistor", "ntc",
+	"ldr", "photoresistor", "potentiometer", "pot ", "flex sensor",
+	"force sensitive", "fsr", "microphone module", "sound sensor",
+	"gas sensor", "mq-2", "mq-3", "mq-4", "mq-7", "mq-135",
+	"analog", "analogue",
+}
+
+// isAnalogue reports whether a part needs an analogue input to be read.
+func isAnalogue(name string) bool {
+	lower := " " + strings.ToLower(name) + " "
+	for _, word := range analogueParts {
+		if strings.Contains(lower, word) {
+			// A soil probe sold as "capacitive" still outputs a voltage, but the
+			// digital modules say so on the tin, so an explicit mention wins.
+			if strings.Contains(lower, "digital") || strings.Contains(lower, "i2c") {
+				return false
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// hasADC looks for something on the shelf that could read an analogue signal
+// for a board that cannot do it itself.
+func hasADC(shelf Shelf) (Item, bool) {
+	for _, it := range shelf.All {
+		lower := strings.ToLower(it.Name)
+		for _, adc := range []string{"mcp3008", "mcp3208", "ads1115", "ads1015", "pcf8591", "adc"} {
+			if strings.Contains(lower, adc) {
+				return it, true
+			}
+		}
+	}
+	return Item{}, false
+}
+
 // matchRecipe finds one part for each role a recipe needs.
+//
+// A recipe that asks for a "controller" is happy with a single-board computer
+// too: a Pi runs every one of these. Spelling that out here rather than in
+// seventeen recipe strings keeps the recipes about the project rather than
+// about the hardware, and it is the difference between a shelf full of Pis
+// getting suggestions and getting nothing at all.
 func matchRecipe(shelf Shelf, r recipe) ([]IdeaPart, bool) {
 	var parts []IdeaPart
 	used := map[int64]bool{}
+	brainIsComputer := false
+
 	for _, need := range r.needs {
 		options := strings.Split(need, "|")
+		if need == "controller" {
+			options = append(options, "computer")
+		}
 		found := false
 		for _, role := range options {
 			for _, it := range shelf.ByRole[role] {
@@ -337,6 +395,9 @@ func matchRecipe(shelf Shelf, r recipe) ([]IdeaPart, bool) {
 					continue
 				}
 				id := it.ID
+				if role == "computer" && need == "controller" {
+					brainIsComputer = true
+				}
 				parts = append(parts, IdeaPart{
 					ItemID: &id, Name: it.Name, Quantity: 1, Role: role, Have: true,
 				})
@@ -352,7 +413,34 @@ func matchRecipe(shelf Shelf, r recipe) ([]IdeaPart, bool) {
 			return nil, false
 		}
 	}
+
+	// A single-board computer has no analogue input. Suggesting it read a TMP35
+	// without saying so would send somebody to the bench to find out the hard
+	// way, so the converter is listed as a part like any other -- ticked off if
+	// one is already on the shelf, and on the shopping list if not.
+	if brainIsComputer && needsADC(parts) {
+		if adc, ok := hasADC(shelf); ok {
+			id := adc.ID
+			parts = append(parts, IdeaPart{
+				ItemID: &id, Name: adc.Name, Quantity: 1, Role: "adc", Have: true,
+			})
+		} else {
+			parts = append(parts, IdeaPart{
+				Name: "an ADC — MCP3008 or ADS1115", Quantity: 1, Role: "adc", Have: false,
+			})
+		}
+	}
 	return parts, true
+}
+
+// needsADC is true when any chosen part hands back a voltage.
+func needsADC(parts []IdeaPart) bool {
+	for _, p := range parts {
+		if p.Role != "adc" && isAnalogue(p.Name) {
+			return true
+		}
+	}
+	return false
 }
 
 // shelfReasoning writes down why this was suggested, so the board is a record
@@ -360,9 +448,18 @@ func matchRecipe(shelf Shelf, r recipe) ([]IdeaPart, bool) {
 func shelfReasoning(parts []IdeaPart, caps Capabilities) string {
 	var names []string
 	for _, p := range parts {
-		names = append(names, p.Name)
+		if p.Have {
+			names = append(names, p.Name)
+		}
 	}
 	text := "Suggested because you already have " + joinWords(names) + "."
+	for _, p := range parts {
+		if p.Role == "adc" {
+			text += " A single-board computer has no analogue input, so the sensor" +
+				" has to go through a converter rather than straight onto a pin."
+			break
+		}
+	}
 	switch {
 	case caps.Print3D:
 		text += " You can print the case for it."

@@ -92,8 +92,10 @@
           <button class="btn tiny" type="submit">Not for me</button>
         </form>
         {{end}}
-        <form method="post" action="/ideas/{{.ID}}/delete">
-          <button class="btn tiny danger" type="submit">×</button>
+        <form method="post" action="/ideas/{{.ID}}/delete"
+              data-confirm="Remove “{{.Title}}” from the board?">
+          <button class="btn tiny danger" type="submit" aria-label="Remove {{.Title}}">
+            <span aria-hidden="true">×</span></button>
         </form>
       </div>
     </div>

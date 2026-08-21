@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -39,6 +40,57 @@ func NewPhotoStore(dir string) (*PhotoStore, error) {
 		return nil, err
 	}
 	return &PhotoStore{dir: dir}, nil
+}
+
+// --- the remote thumbnail cache ---------------------------------------------
+
+// Thumbnails from the model sites are cached on disk so a page of search
+// results does not re-fetch a dozen images from somebody else's server every
+// time it is looked at. It is a cache in the real sense: losing it costs a
+// refetch and nothing else, so nothing here treats a failure as an error.
+
+func (p *PhotoStore) remoteCacheDir() string { return filepath.Join(p.dir, "remote") }
+
+// remoteCacheName keys the cache by the URL rather than by the image, because
+// the URL is what a page has in hand before any fetch has happened.
+func remoteCacheName(url string) string {
+	sum := sha256.Sum256([]byte(url))
+	return hex.EncodeToString(sum[:12])
+}
+
+// CachedRemote returns a previously fetched image, if one is on disk.
+func (p *PhotoStore) CachedRemote(url string) ([]byte, bool) {
+	body, err := os.ReadFile(filepath.Join(p.remoteCacheDir(), remoteCacheName(url)))
+	if err != nil || len(body) == 0 {
+		return nil, false
+	}
+	return body, true
+}
+
+// CacheRemote stores one, and says nothing when it cannot.
+func (p *PhotoStore) CacheRemote(url string, body []byte) {
+	if len(body) == 0 {
+		return
+	}
+	dir := p.remoteCacheDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	// Write beside and rename, so a half-written file is never read back as a
+	// truncated image.
+	tmp, err := os.CreateTemp(dir, "tmp-*")
+	if err != nil {
+		return
+	}
+	if _, err := tmp.Write(body); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return
+	}
+	tmp.Close()
+	if err := os.Rename(tmp.Name(), filepath.Join(dir, remoteCacheName(url))); err != nil {
+		os.Remove(tmp.Name())
+	}
 }
 
 func (p *PhotoStore) Path(name string) string      { return filepath.Join(p.dir, name) }

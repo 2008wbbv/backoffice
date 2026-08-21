@@ -25,19 +25,62 @@ type page struct {
 	Error    string
 	Bare     bool // hides the nav, for the sign-in page
 	Data     any
+
+	// For the account menu in the top right.
+	WhoAmI         string // the name to show, however you got here
+	Others         []User // the other accounts, to switch to
+	CanManageUsers bool
+}
+
+// whoAmI is the name on the account button. There are three ways to be using
+// this app -- as a named account, behind a shared password, or with no sign-in
+// at all -- and the button has to say something sensible in all three. The
+// profile name is the fallback because on a single-person install that is the
+// only name anybody has given.
+func (a *App) whoAmI(r *http.Request) string {
+	if u := CurrentUser(r); u != nil {
+		return u.Username
+	}
+	if p, err := a.store.GetProfile(); err == nil && p.Name != "" {
+		return p.Name
+	}
+	return "You"
+}
+
+// otherAccounts lists who else could be signed in as. It is empty on an
+// install with no accounts, which is the common case and correctly shows no
+// switcher at all.
+func (a *App) otherAccounts(me *User) []User {
+	users, err := a.store.ListUsers()
+	if err != nil {
+		return nil
+	}
+	var out []User
+	for _, u := range users {
+		if me != nil && u.ID == me.ID {
+			continue
+		}
+		out = append(out, u)
+	}
+	return out
 }
 
 func (a *App) render(w http.ResponseWriter, r *http.Request, name string, title string, data any) {
+	me := CurrentUser(r)
 	p := page{
 		Title:    title,
 		Path:     r.URL.Path,
 		SiteName: a.cfg.Title,
 		AuthOn:   a.auth.Enabled(),
-		User:     CurrentUser(r),
+		User:     me,
 		Flash:    r.URL.Query().Get("flash"),
 		Error:    r.URL.Query().Get("error"),
 		Bare:     name == "login.html",
 		Data:     data,
+
+		WhoAmI:         a.whoAmI(r),
+		Others:         a.otherAccounts(me),
+		CanManageUsers: me == nil || me.Admin,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := a.tmpl.ExecuteTemplate(w, name, p); err != nil {
@@ -642,7 +685,11 @@ func (a *App) handleLoginForm(w http.ResponseWriter, r *http.Request) {
 	a.render(w, r, "login.html", "Sign in", map[string]any{
 		"Next":     safeNext(r.URL.Query().Get("next")),
 		"Accounts": a.auth.Accounts(),
-		"Shared":   a.auth.password != "",
+		// Switching accounts from the header lands here with the name already
+		// filled in; the password is still required, because a switcher that
+		// skipped it would be a hole rather than a convenience.
+		"As":     strings.TrimSpace(r.URL.Query().Get("as")),
+		"Shared": a.auth.password != "",
 	})
 }
 

@@ -8,12 +8,14 @@
   {{if $d.Accounts}}
   <label class="field wide">
     <span>Username{{if $d.Shared}} <em>leave blank to use the shared password</em>{{end}}</span>
-    <input name="username" autofocus autocomplete="username" spellcheck="false">
+    <input name="username" value="{{$d.As}}" {{if not $d.As}}autofocus{{end}}
+           autocomplete="username" spellcheck="false">
   </label>
   {{end}}
   <label class="field wide">
     <span>Password</span>
-    <input name="password" type="password" {{if not $d.Accounts}}autofocus{{end}} required autocomplete="current-password">
+    <input name="password" type="password" {{if or (not $d.Accounts) $d.As}}autofocus{{end}}
+           required autocomplete="current-password">
   </label>
   <div class="actions"><button class="btn primary" type="submit">Sign in</button></div>
 </form>

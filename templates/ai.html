@@ -121,7 +121,7 @@ network and no key.</p>
       </form>
       {{end}}
       <form method="post" action="/settings/ai/{{.ID}}/delete"
-            onsubmit="return confirm('Remove {{.Name}}?')">
+            data-confirm="Remove {{.Name}}?">
         <button class="btn tiny danger" type="submit">Remove</button>
       </form>
     </div>

@@ -164,9 +164,15 @@ silent fallback.
 **Read my shelf** needs no network, no key and no model. It sorts the inventory
 into roles — controller, sensor, display, actuator, radio, power — from each
 item's name, category, tags and recorded interfaces, and matches them against a
-set of recipes. It will only propose a project it can name every part for, so it
-suggests fewer things than a model would and none of them are fictional. Parts
-you have none of in stock do not count.
+set of recipes. A single-board computer counts as a brain, so a shelf of
+Raspberry Pis gets suggestions like any other; and because a Pi has no analogue
+input, an idea that pairs one with an analogue sensor — a TMP35, an LM35, a
+thermistor — lists the ADC it needs as a part, ticked off if you own one and on
+the shopping list if you do not.
+
+It will only propose a project it can name every part for, so it suggests fewer
+things than a model would and none of them are fictional. Parts you have none of
+in stock do not count.
 
 **Ask the model** is better at the leap you would not have thought of and worse
 at knowing what you own, so its answers are checked back against the inventory
@@ -180,6 +186,13 @@ have calipers), laser cut it, buy a box and drill it, or — with no tools
 recorded — look for a project box with the cutouts already in it. For a part
 whose size nothing on file records, it says so and asks you to measure it, since
 a case designed from a product photo never fits.
+
+Thumbnails from the model sites are cached on disk the first time they are
+shown, so a page of results does not re-fetch a dozen images from somebody
+else's server every time you look at it, and a case you have seen once stays
+visible offline. A case you actually keep has its picture downloaded outright,
+so it survives the model being taken down. The cache is disposable: deleting
+`data/photos/remote` costs a refetch and nothing else.
 
 **Plan it** turns an idea into a real project with its parts already listed,
 which is where the pin budget, the wiring and the build log take over.
@@ -201,6 +214,20 @@ The **wiring card** CSV carries the same colours by name, so the printout and
 the screen say the same thing.
 
 ## Using it
+
+On the right of the bar is your account button. It shows who you are — the
+signed-in account, or the name from your profile when there is no sign-in set
+up — and opens a menu with your profile, your workshop, the model settings, and
+**Appearance**: Light, Dark, or System. System is the default and stays
+reachable, so a laptop that flips at sunset can have that back. The choice is
+remembered in the browser and applied before the page paints, so it never
+flashes the wrong colours on load; with JavaScript off the page follows the
+system setting.
+
+When more than one account exists, the menu also lists the others under
+**Switch to**. Switching goes through the sign-in form with the name filled in
+and the password still required — a switcher that skipped the password would be
+a hole rather than a convenience.
 
 The bar across the top carries the places you go daily — **Items**, **Projects**,
 **Ideas**, **Orders**, **Scan** — plus **+ Add**. Everything else (manufacturers,

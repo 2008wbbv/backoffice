@@ -130,7 +130,7 @@
     <input type="hidden" name="status" value="dropped"><button class="btn" type="submit">Not for me</button>
   </form>
   {{end}}
-  <form method="post" action="/ideas/{{$i.ID}}/delete" onsubmit="return confirm('Remove this idea?')">
+  <form method="post" action="/ideas/{{$i.ID}}/delete" data-confirm="Remove “{{$i.Title}}”?">
     <button class="btn danger" type="submit">Delete</button>
   </form>
 </div>
