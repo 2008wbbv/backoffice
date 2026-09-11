@@ -15,7 +15,7 @@ One Go binary, one SQLite file, one folder of photos. No database server, no
 ## Running it
 
 ```sh
-go build -o backoffice .
+go build -o backoffice ./cmd/backoffice
 ./backoffice          # http://localhost:8080, data in ./data
 ```
 
@@ -25,7 +25,7 @@ For a Pi or any other ARM box, build it anywhere and copy the binary over — it
 has no runtime dependencies, not even libc:
 
 ```sh
-GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o backoffice .
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o backoffice ./cmd/backoffice
 ```
 
 Upgrading is replacing the binary. The database migrates itself on startup.
